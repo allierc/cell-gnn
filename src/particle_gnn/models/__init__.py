@@ -1,1 +1,2 @@
 from particle_gnn.models.Interaction_Particle import Interaction_Particle
+from particle_gnn.models.Interaction_Particle_Field import Interaction_Particle_Field

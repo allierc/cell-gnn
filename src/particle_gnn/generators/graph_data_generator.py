@@ -12,7 +12,11 @@ from matplotlib.ticker import FormatStrFormatter
 from scipy import stats
 from tqdm import trange
 
-from particle_gnn.generators.utils import choose_model, init_particles
+import logging
+from shutil import copyfile
+from tifffile import imread
+
+from particle_gnn.generators.utils import choose_model, init_particles, init_mesh
 from particle_gnn.utils import (
     to_numpy,
     CustomColorMap,
@@ -51,20 +55,38 @@ def data_generate(
         print("watch out: data already generated")
         # return
 
-    data_generate_particle(
-        config,
-        visualize=visualize,
-        run_vizualized=run_vizualized,
-        style=style,
-        erase=erase,
-        step=step,
-        alpha=alpha,
-        ratio=ratio,
-        scenario=scenario,
-        device=device,
-        bSave=bSave,
-        timer=timer,
-    )
+    has_particle_field = "PDE_ParticleField" in config.graph_model.particle_model_name
+
+    if has_particle_field:
+        data_generate_particle_field(
+            config,
+            visualize=visualize,
+            run_vizualized=run_vizualized,
+            style=style,
+            erase=erase,
+            step=step,
+            alpha=alpha,
+            ratio=ratio,
+            scenario=scenario,
+            device=device,
+            bSave=bSave,
+            timer=timer,
+        )
+    else:
+        data_generate_particle(
+            config,
+            visualize=visualize,
+            run_vizualized=run_vizualized,
+            style=style,
+            erase=erase,
+            step=step,
+            alpha=alpha,
+            ratio=ratio,
+            scenario=scenario,
+            device=device,
+            bSave=bSave,
+            timer=timer,
+        )
 
     plt.style.use("default")
 
@@ -511,3 +533,352 @@ def data_generate_particle(
             connection_matrix_list,
             f"graphs_data/{dataset_name}/connection_matrix_list.pt",
         )
+
+
+def data_generate_particle_field(
+    config,
+    visualize=True,
+    run_vizualized=0,
+    style="color",
+    erase=False,
+    step=1,
+    alpha=0.2,
+    ratio=1,
+    scenario="none",
+    device=None,
+    bSave=True,
+    timer=False
+):
+
+    simulation_config = config.simulation
+    training_config = config.training
+    model_config = config.graph_model
+
+    print(
+        f"generating data ... {model_config.particle_model_name}"
+    )
+
+    dimension = simulation_config.dimension
+    max_radius = simulation_config.max_radius
+    min_radius = simulation_config.min_radius
+    n_particle_types = simulation_config.n_particle_types
+    n_particles = simulation_config.n_particles
+    n_nodes = simulation_config.n_nodes
+    n_nodes_per_axis = int(np.sqrt(n_nodes))
+    delta_t = simulation_config.delta_t
+    n_frames = simulation_config.n_frames
+    has_particle_dropout = training_config.particle_dropout > 0
+    cmap = CustomColorMap(config=config)
+    dataset_name = config.dataset
+    bounce = simulation_config.bounce
+    bounce_coeff = simulation_config.bounce_coeff
+
+    # Create log directory
+    log_dir = f"./graphs_data/{dataset_name}/"
+    log_file = f"{log_dir}/generator.log"
+    os.makedirs(log_dir, exist_ok=True)
+    logging.basicConfig(
+        filename=log_file, format="%(asctime)s %(message)s", filemode="w"
+    )
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    logger.info(config)
+
+    folder = f"./graphs_data/{dataset_name}/"
+    if erase:
+        files = glob.glob(f"{folder}/Fig/*")
+        for f in files:
+            if (f[-14:] != "generated_data") & (f != "p.pt") & (f != "model_config.json") & (f != "generation_code.py"):
+                os.remove(f)
+    os.makedirs(folder, exist_ok=True)
+    os.makedirs(f"./graphs_data/{dataset_name}/Fig/", exist_ok=True)
+    files = glob.glob(f"./graphs_data/{dataset_name}/Fig/*")
+    for f in files:
+        os.remove(f)
+    copyfile(os.path.realpath(__file__), os.path.join(folder, "generation_code.py"))
+
+    X1_mesh, V1_mesh, T1_mesh, H1_mesh, A1_mesh, N1_mesh, mesh_data = init_mesh(config, device=device)
+    mask_mesh = mesh_data["mask"].squeeze()
+
+    if hasattr(simulation_config, 'boundary') and simulation_config.boundary == 'periodic':
+        mask_mesh = torch.ones_like(mask_mesh, dtype=torch.bool)
+
+    model_p_p, bc_pos, bc_dpos = choose_model(config=config, device=device)
+    model_f_p = model_p_p
+
+    index_particles = []
+    for n in range(n_particle_types):
+        index_particles.append(
+            np.arange(
+                (n_particles // n_particle_types) * n,
+                (n_particles // n_particle_types) * (n + 1),
+            )
+        )
+    if has_particle_dropout:
+        draw = np.random.permutation(np.arange(n_particles))
+        cut = int(n_particles * (1 - training_config.particle_dropout))
+        particle_dropout_mask = draw[0:cut]
+        inv_particle_dropout_mask = draw[cut:]
+        x_removed_list = []
+    else:
+        particle_dropout_mask = np.arange(n_particles)
+
+    for run in range(config.training.n_runs):
+        n_particles = simulation_config.n_particles
+
+        x_list = []
+        y_list = []
+        x_mesh_list = []
+        y_mesh_list = []
+        edge_p_p_list = []
+        edge_f_p_list = []
+        id_fig = 0
+
+        X1, V1, T1, H1, _, N1 = init_particles(config=config, scenario=scenario, ratio=ratio, device=device)
+
+        if simulation_config.shuffle_particle_types:
+            if run == 0:
+                print('shuffle types...')
+                shuffle_index = torch.randperm(n_particles, device=device)
+                T1 = T1[shuffle_index]
+                first_T1 = T1.clone().detach()
+            else:
+                T1 = first_T1.clone().detach()
+
+        X1_mesh, _, _, H1_mesh, _, _, _ = init_mesh(config, device=device)
+        H1_mesh[mask_mesh == 0.0] = 0.0
+        edge_cache = NeighborCache()
+
+        H1_mesh = torch.clamp(H1_mesh, min=0.0)
+        torch.save(mesh_data, f"graphs_data/{dataset_name}/mesh_data_{run}.pt")
+
+        check_and_clear_memory(
+            device=device,
+            iteration_number=0,
+            every_n_iterations=250,
+            memory_percentage_threshold=0.6,
+        )
+        time.sleep(1)
+
+        for it in range(simulation_config.start_frame, n_frames + 1):
+            if ("siren" in model_config.field_type) & (it >= 0):
+                im = imread(
+                    f"graphs_data/{simulation_config.node_value_map}"
+                )
+                im = im[it].squeeze()
+                im = np.rot90(im, 3)
+                im = np.reshape(im, (n_nodes_per_axis * n_nodes_per_axis))
+                H1_mesh[:, 0:1] = torch.tensor(
+                    im[:, None], dtype=torch.float32, device=device
+                )
+
+            x = torch.concatenate(
+                (
+                    N1.clone().detach(),
+                    X1.clone().detach(),
+                    V1.clone().detach(),
+                    T1.clone().detach(),
+                    H1.clone().detach(),
+                ),
+                1,
+            )
+
+            if it == simulation_config.start_frame:
+                index_particles = get_index_particles(x, n_particle_types, dimension)
+
+            x_mesh = torch.concatenate(
+                (
+                    N1_mesh.clone().detach(),
+                    X1_mesh.clone().detach(),
+                    V1_mesh.clone().detach(),
+                    T1_mesh.clone().detach(),
+                    H1_mesh.clone().detach(),
+                ),
+                1,
+            )
+
+            x_particle_field = torch.concatenate((x_mesh, x), dim=0)
+
+            with torch.no_grad():
+
+                pos = x[:, 1:1+dimension]
+                edge_index = get_edges_with_cache(
+                    pos=pos,
+                    bc_dpos=bc_dpos,
+                    cache=edge_cache,
+                    r_cut=max_radius,
+                    r_skin=0.05,
+                    min_radius=min_radius,
+                    block=2048
+                )
+
+                dataset_p_p = data.Data(x=x, pos=x[:, 1:3], edge_index=edge_index)
+                if not has_particle_dropout:
+                    edge_p_p_list.append(edge_index)
+
+                distance = torch.sum(
+                    bc_dpos(
+                        x_particle_field[:, None, 1 : dimension + 1]
+                        - x_particle_field[None, :, 1 : dimension + 1]
+                    )
+                    ** 2,
+                    dim=2,
+                )
+                adj_t = (
+                    (distance < (max_radius / 2) ** 2) & (distance > min_radius**2)
+                ).float() * 1
+                edge_index_fp = adj_t.nonzero().t().contiguous()
+                pos_fp = torch.argwhere(
+                    (edge_index_fp[1, :] >= n_nodes) & (edge_index_fp[0, :] < n_nodes)
+                )
+                pos_fp = to_numpy(pos_fp[:, 0])
+                edge_index_fp = edge_index_fp[:, pos_fp]
+                dataset_f_p = data.Data(
+                    x=x_particle_field,
+                    pos=x_particle_field[:, 1:3],
+                    edge_index=edge_index_fp,
+                )
+                if not has_particle_dropout:
+                    edge_f_p_list.append(edge_index_fp)
+
+                y0 = model_p_p(dataset_p_p, has_field=False)
+                y1 = model_f_p(dataset_f_p, has_field=True)[n_nodes:]
+                y = y0 + y1
+
+            # append list
+            if (it >= 0) & bSave:
+                if has_particle_dropout:
+                    x_ = x[inv_particle_dropout_mask].clone().detach()
+                    x_[:, 0] = torch.arange(len(x_), device=device)
+                    x_removed_list.append(x[inv_particle_dropout_mask].clone().detach())
+                    x_ = x[particle_dropout_mask].clone().detach()
+                    x_[:, 0] = torch.arange(len(x_), device=device)
+                    x_list.append(x_)
+                    y_list.append(y[particle_dropout_mask].clone().detach())
+
+                    distance = torch.sum(
+                        bc_dpos(
+                            x_[:, None, 1 : dimension + 1]
+                            - x_[None, :, 1 : dimension + 1]
+                        )
+                        ** 2,
+                        dim=2,
+                    )
+                    adj_t = (
+                        (distance < max_radius**2) & (distance > min_radius**2)
+                    ).float() * 1
+                    edge_index = adj_t.nonzero().t().contiguous()
+                    edge_p_p_list.append(edge_index)
+
+                    x_particle_field = torch.concatenate((x_mesh, x_), dim=0)
+
+                    distance = torch.sum(
+                        bc_dpos(
+                            x_particle_field[:, None, 1 : dimension + 1]
+                            - x_particle_field[None, :, 1 : dimension + 1]
+                        )
+                        ** 2,
+                        dim=2,
+                    )
+                    adj_t = (
+                        (distance < (max_radius / 2) ** 2) & (distance > min_radius**2)
+                    ).float() * 1
+                    edge_index = adj_t.nonzero().t().contiguous()
+                    pos_idx = torch.argwhere(
+                        (edge_index[1, :] >= n_nodes) & (edge_index[0, :] < n_nodes)
+                    )
+                    pos_idx = to_numpy(pos_idx[:, 0])
+                    edge_index = edge_index[:, pos_idx]
+                    edge_f_p_list.append(edge_index)
+                else:
+                    x_list.append(x.clone().detach())
+                    y_list.append(y.clone().detach())
+
+                x_mesh_list.append(x_mesh.clone().detach())
+                y_mesh_list.append(torch.zeros_like(x_mesh[:, 6:8]))
+
+            # Particle update
+            with torch.no_grad():
+                if model_config.prediction == "2nd_derivative":
+                    V1 += y * delta_t
+                else:
+                    V1 = y
+
+                if bounce:
+                    X1 = X1 + V1 * delta_t
+                    gap = 0.005
+                    bouncing_pos = torch.argwhere(
+                        (X1[:, 0] <= 0.1 + gap) | (X1[:, 0] >= 0.9 - gap)
+                    ).squeeze()
+                    if bouncing_pos.numel() > 0:
+                        V1[bouncing_pos, 0] = -0.7 * bounce_coeff * V1[bouncing_pos, 0]
+                        X1[bouncing_pos, 0] += V1[bouncing_pos, 0] * delta_t * 10
+                    bouncing_pos = torch.argwhere(
+                        (X1[:, 1] <= 0.1 + gap) | (X1[:, 1] >= 0.9 - gap)
+                    ).squeeze()
+                    if bouncing_pos.numel() > 0:
+                        V1[bouncing_pos, 1] = -0.7 * bounce_coeff * V1[bouncing_pos, 1]
+                        X1[bouncing_pos, 1] += V1[bouncing_pos, 1] * delta_t * 10
+                else:
+                    X1 = bc_pos(X1 + V1 * delta_t)
+
+            if visualize & (run == run_vizualized) & (it % step == 0) & (it >= 0):
+                num = f"{id_fig:06}"
+                id_fig += 1
+
+                matplotlib.rcParams["savefig.pad_inches"] = 0
+                fig = plt.figure(figsize=(12, 12))
+                ax = fig.add_subplot(1, 1, 1)
+                ax.xaxis.set_major_locator(plt.MaxNLocator(3))
+                ax.yaxis.set_major_locator(plt.MaxNLocator(3))
+                ax.xaxis.set_major_formatter(FormatStrFormatter("%.1f"))
+                ax.yaxis.set_major_formatter(FormatStrFormatter("%.1f"))
+                ax.tick_params(axis="both", which="major", pad=15)
+                s_p = 20
+                for n in range(n_particle_types):
+                    plt.scatter(
+                        to_numpy(x[index_particles[n], 2]),
+                        to_numpy(x[index_particles[n], 1]),
+                        s=s_p,
+                        color=cmap.color(n),
+                    )
+                plt.xlim([0, 1])
+                plt.ylim([0, 1])
+                plt.xticks([])
+                plt.yticks([])
+                plt.tight_layout()
+                plt.savefig(
+                    f"graphs_data/{dataset_name}/Fig/Fig_{run}_{it}.jpg", dpi=170.7
+                )
+                plt.close()
+
+        if bSave:
+            x_list_ = np.array(to_numpy(torch.stack(x_list)))
+            y_list_ = np.array(to_numpy(torch.stack(y_list)))
+            np.save(f"graphs_data/{dataset_name}/x_list_{run}.npy", x_list_)
+            if has_particle_dropout:
+                torch.save(
+                    x_removed_list,
+                    f"graphs_data/{dataset_name}/x_removed_list_{run}.pt",
+                )
+                np.save(
+                    f"graphs_data/{dataset_name}/particle_dropout_mask.npy",
+                    particle_dropout_mask,
+                )
+                np.save(
+                    f"graphs_data/{dataset_name}/inv_particle_dropout_mask.npy",
+                    inv_particle_dropout_mask,
+                )
+            np.save(f"graphs_data/{dataset_name}/y_list_{run}.npy", y_list_)
+            del x_list_, y_list_
+
+            torch.save(x_mesh_list, f"graphs_data/{dataset_name}/x_mesh_list_{run}.pt")
+            torch.save(y_mesh_list, f"graphs_data/{dataset_name}/y_mesh_list_{run}.pt")
+            torch.save(
+                edge_p_p_list, f"graphs_data/{dataset_name}/edge_p_p_list{run}.pt"
+            )
+            torch.save(
+                edge_f_p_list, f"graphs_data/{dataset_name}/edge_f_p_list{run}.pt"
+            )
+
+        print('data generated...')
