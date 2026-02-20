@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "particle-gnn"
+version = "0.1.0"
+description = "Graph Neural Networks for particle simulations (arbitrary, boids, gravity)"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.0",
+    "torch-geometric>=2.4",
+    "numpy",
+    "scipy",
+    "matplotlib",
+    "scikit-learn",
+    "pydantic>=2.0",
+    "pyyaml",
+    "tqdm",
+    "imageio",
+    "umap-learn",
+    "geomloss",
+    "prettytable",
+    "tifffile",
+    "seaborn",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
