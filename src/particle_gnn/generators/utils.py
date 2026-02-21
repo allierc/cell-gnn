@@ -3,7 +3,7 @@ import torch
 from scipy.spatial import Delaunay
 from tifffile import imread
 from time import sleep
-from torch_geometric.utils import get_mesh_laplacian
+from particle_gnn.graph_utils import compute_mesh_laplacian
 
 from particle_gnn.generators import PDE_A, PDE_B, PDE_G
 from particle_gnn.particle_state import ParticleState, FieldState
@@ -213,7 +213,7 @@ def init_mesh(config, device):
     face = face.to(device, torch.long)
 
     pos_3d = torch.cat((mesh_state.pos, torch.ones((n_nodes, 1), device=device)), dim=1)
-    edge_index_mesh, edge_weight_mesh = get_mesh_laplacian(pos=pos_3d, face=face, normalization="None")
+    edge_index_mesh, edge_weight_mesh = compute_mesh_laplacian(pos=pos_3d, face=face)
     edge_weight_mesh = edge_weight_mesh.to(dtype=torch.float32)
 
     mesh_data = {'mesh_pos': pos_3d, 'face': face, 'edge_index': edge_index_mesh, 'edge_weight': edge_weight_mesh,

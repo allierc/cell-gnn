@@ -1,15 +1,14 @@
 import numpy as np
 import torch
 import torch.nn as nn
-import torch_geometric as pyg
-import torch_geometric.utils as pyg_utils
 from particle_gnn.models.MLP import MLP
 from particle_gnn.utils import to_numpy
 from particle_gnn.models import Siren_Network
 from particle_gnn.particle_state import ParticleState
+from particle_gnn.graph_utils import remove_self_loops, scatter_aggregate
 
 
-class Interaction_Particle_Field(pyg.nn.MessagePassing):
+class Interaction_Particle_Field(nn.Module):
     """Interaction Network as proposed in this paper:
     https://proceedings.neurips.cc/paper/2016/hash/3147da8ab4a0437c15ef51a5cc7f2dc4-Abstract.html"""
 
@@ -30,7 +29,9 @@ class Interaction_Particle_Field(pyg.nn.MessagePassing):
 
     def __init__(self, config, device, aggr_type=None, bc_dpos=None, dimension=2):
 
-        super(Interaction_Particle_Field, self).__init__(aggr=aggr_type)  # "Add" aggregation.
+        super().__init__()
+
+        self.aggr_type = aggr_type
 
         simulation_config = config.simulation
         model_config = config.graph_model
@@ -79,7 +80,7 @@ class Interaction_Particle_Field(pyg.nn.MessagePassing):
         self.has_field = has_field
         self.training = training
 
-        edge_index, _ = pyg_utils.remove_self_loops(edge_index)
+        edge_index = remove_self_loops(edge_index)
 
         pos = state.pos
         d_pos = state.vel
@@ -90,7 +91,17 @@ class Interaction_Particle_Field(pyg.nn.MessagePassing):
 
         particle_id = state.index.unsqueeze(-1)
 
-        pred = self.propagate(edge_index, pos=pos, d_pos=d_pos, particle_id=particle_id, field=field)
+        # Gather features for source (j) and target (i) nodes
+        src, dst = edge_index[1], edge_index[0]
+        pos_i, pos_j = pos[dst], pos[src]
+        d_pos_i, d_pos_j = d_pos[dst], d_pos[src]
+        particle_id_i, particle_id_j = particle_id[dst], particle_id[src]
+        field_j = field[src]
+
+        messages = self.message(pos_i, pos_j, d_pos_i, d_pos_j, particle_id_i, particle_id_j, field_j)
+
+        n_nodes = pos.shape[0]
+        pred = scatter_aggregate(messages, dst, n_nodes, self.aggr_type)
 
         if self.update_type == 'linear':
             embedding = self.a[self.data_id, particle_id, :]
@@ -139,10 +150,6 @@ class Interaction_Particle_Field(pyg.nn.MessagePassing):
         out = self.lin_edge(in_features) * field_j
 
         return out
-
-    def update(self, aggr_out):
-
-        return aggr_out  # self.lin_node(aggr_out)
 
     def psi(self, r, p1, p2):
 

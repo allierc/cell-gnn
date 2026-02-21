@@ -26,9 +26,7 @@ from particle_gnn.zarr_io import load_simulation_data, load_field_data, load_raw
 from geomloss import SamplesLoss
 from sklearn.neighbors import NearestNeighbors
 from scipy.optimize import curve_fit
-import torch_geometric.data as data
-from torch_geometric.utils import dense_to_sparse
-from torch_geometric.loader import DataLoader
+from particle_gnn.graph_utils import GraphData, collate_graph_batch
 from sklearn import neighbors, metrics
 from tqdm import trange
 from prettytable import PrettyTable
@@ -243,14 +241,14 @@ def data_train_particle(config, erase, best_model, device):
                     edges = edges[:, mask]
 
                 if time_window == 0:
-                    dataset = data.Data(x=x[:, :], edge_index=edges, num_nodes=x.shape[0])
+                    dataset = GraphData(x=x[:, :], edge_index=edges, num_nodes=x.shape[0])
                     dataset_batch.append(dataset)
                 else:
                     xt = []
                     for t in range(time_window):
                         x_ = x_ts.frame(k - t).to_packed().to(device)
                         xt.append(x_[:, :])
-                    dataset = data.Data(x=xt, edge_index=edges, num_nodes=x.shape[0])
+                    dataset = GraphData(x=xt, edge_index=edges, num_nodes=x.shape[0])
                     dataset_batch.append(dataset)
 
                 if recursive_loop > 0:
@@ -279,18 +277,17 @@ def data_train_particle(config, erase, best_model, device):
 
                 ids_index += x.shape[0]
 
-            batch_loader = DataLoader(dataset_batch, batch_size=batch_size, shuffle=False)
+            batch = collate_graph_batch(dataset_batch)
             optimizer.zero_grad()
 
-            for batch in batch_loader:
-                batch_state = ParticleState.from_packed(batch.x, dimension)
-                pred = model(batch_state, batch.edge_index, data_id=data_id, training=True, k=k_batch, has_field=has_field)
+            batch_state = ParticleState.from_packed(batch.x, dimension)
+            pred = model(batch_state, batch.edge_index, data_id=data_id, training=True, k=k_batch, has_field=has_field)
 
             if recursive_loop > 0:
                 for loop in range(recursive_loop):
                     ids_index = 0
-                    for batch in range(batch_size):
-                        x = dataset_batch[batch].x.clone().detach()
+                    for b in range(batch_size):
+                        x = dataset_batch[b].x.clone().detach()
 
                         pos_start = 1
                         pos_end = 1 + dimension
@@ -304,14 +301,13 @@ def data_train_particle(config, erase, best_model, device):
                             V1 = pred[ids_index:ids_index + x.shape[0]] * ynorm
                         x[:, pos_start:pos_end] = bc_pos(X1 + V1 * delta_t)
                         x[:, vel_start:vel_end] = V1
-                        dataset_batch[batch].x = x
+                        dataset_batch[b].x = x
 
                         ids_index += x.shape[0]
 
-                    batch_loader = DataLoader(dataset_batch, batch_size=batch_size, shuffle=False)
-                    for batch in batch_loader:
-                        batch_state = ParticleState.from_packed(batch.x, dimension)
-                        pred = model(batch_state, batch.edge_index, data_id=data_id, training=True, k=k_batch)
+                    batch = collate_graph_batch(dataset_batch)
+                    batch_state = ParticleState.from_packed(batch.x, dimension)
+                    pred = model(batch_state, batch.edge_index, data_id=data_id, training=True, k=k_batch)
 
             if sim.state_type == 'sequence':
                 loss = (pred - y_batch).norm(2)
@@ -759,7 +755,7 @@ def data_test_particle(config=None, config_file=None, visualize=False, style='co
     n_particles = x.shape[0]
     x_inference_list = []
 
-    for it in trange(start_it, stop_it, ncols=150):
+    for it in trange(start_it, stop_it, ncols=100):
 
         check_and_clear_memory(device=device, iteration_number=it, every_n_iterations=25,
                                memory_percentage_threshold=0.6)
@@ -811,9 +807,9 @@ def data_test_particle(config=None, config_file=None, visualize=False, style='co
                 for t in range(time_window):
                     x_ = x_packed[it - t].clone().detach()
                     xt.append(x_[:, :])
-                dataset = data.Data(x=xt, edge_index=edge_index)
+                dataset = GraphData(x=xt, edge_index=edge_index)
             else:
-                dataset = data.Data(x=x, pos=x[:, pos_start:pos_end], edge_index=edge_index)
+                dataset = GraphData(x=x, edge_index=edge_index)
 
             if 'test_simulation' in test_mode:
                 y = y0 / ynorm
@@ -1256,11 +1252,11 @@ def data_train_particle_field(config, erase, best_model, device):
                 x_particle_field = torch.concatenate((x_mesh, x), dim=0)
 
                 edges = edge_p_p_list[k]
-                dataset_p_p = data.Data(x=x[:, :], edge_index=edges)
+                dataset_p_p = GraphData(x=x[:, :], edge_index=edges)
                 dataset_batch_p_p.append(dataset_p_p)
 
                 edges = edge_f_p_list[k]
-                dataset_f_p = data.Data(x=x_particle_field[:, :], edge_index=edges)
+                dataset_f_p = GraphData(x=x_particle_field[:, :], edge_index=edges)
                 dataset_batch_f_p.append(dataset_f_p)
 
                 y = y_raw[k].clone().detach()
@@ -1278,19 +1274,17 @@ def data_train_particle_field(config, erase, best_model, device):
                 else:
                     y_batch = torch.cat((y_batch, y[:, 0:2]), dim=0)
 
-            batch_loader_p_p = DataLoader(dataset_batch_p_p, batch_size=batch_size, shuffle=False)
-            batch_loader_f_p = DataLoader(dataset_batch_f_p, batch_size=batch_size, shuffle=False)
+            batch_p_p = collate_graph_batch(dataset_batch_p_p)
+            batch_f_p = collate_graph_batch(dataset_batch_f_p)
 
             optimizer.zero_grad()
 
             if has_siren:
                 optimizer_f.zero_grad()
-            for batch in batch_loader_f_p:
-                batch_state = ParticleState.from_packed(batch.x, dimension)
-                pred_f_p = model(batch_state, batch.edge_index, data_id=0, training=True, phi=phi, has_field=True)
-            for batch in batch_loader_p_p:
-                batch_state = ParticleState.from_packed(batch.x, dimension)
-                pred_p_p = model(batch_state, batch.edge_index, data_id=0, training=True, phi=phi, has_field=False)
+            batch_state = ParticleState.from_packed(batch_f_p.x, dimension)
+            pred_f_p = model(batch_state, batch_f_p.edge_index, data_id=0, training=True, phi=phi, has_field=True)
+            batch_state = ParticleState.from_packed(batch_p_p.x, dimension)
+            pred_p_p = model(batch_state, batch_p_p.edge_index, data_id=0, training=True, phi=phi, has_field=False)
 
             pred_f_p = pred_f_p[f_p_mask]
 

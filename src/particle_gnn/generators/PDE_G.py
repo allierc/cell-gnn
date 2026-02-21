@@ -1,11 +1,11 @@
 
-import torch_geometric as pyg
-import torch_geometric.utils as pyg_utils
 import torch
+import torch.nn as nn
 from particle_gnn.utils import to_numpy
 from particle_gnn.particle_state import ParticleState
+from particle_gnn.graph_utils import remove_self_loops, scatter_aggregate
 
-class PDE_G(pyg.nn.MessagePassing):
+class PDE_G(nn.Module):
     """Interaction Network as proposed in this paper:
     https://proceedings.neurips.cc/paper/2016/hash/3147da8ab4a0437c15ef51a5cc7f2dc4-Abstract.html"""
 
@@ -23,7 +23,7 @@ class PDE_G(pyg.nn.MessagePassing):
     """
 
     def __init__(self, aggr_type=[], p=[], clamp=[], pred_limit=[], bc_dpos=[], dimension=2):
-        super(PDE_G, self).__init__(aggr='add')  # "mean" aggregation.
+        super().__init__()
 
         self.p = p
         self.clamp = clamp
@@ -32,10 +32,15 @@ class PDE_G(pyg.nn.MessagePassing):
         self.dimension = dimension
 
     def forward(self, state: ParticleState, edge_index: torch.Tensor):
-        edge_index, _ = pyg_utils.remove_self_loops(edge_index)
+        edge_index = remove_self_loops(edge_index)
 
         mass = self.p[to_numpy(state.particle_type)]
-        dd_pos = self.propagate(edge_index, pos=state.pos, mass=mass[:,None])
+        src, dst = edge_index[1], edge_index[0]
+        pos_i, pos_j = state.pos[dst], state.pos[src]
+        mass_j = mass[src, None]
+
+        messages = self.message(pos_i, pos_j, mass_j)
+        dd_pos = scatter_aggregate(messages, dst, state.n_particles, 'add')
         return dd_pos
 
     def message(self, pos_i, pos_j, mass_j):
