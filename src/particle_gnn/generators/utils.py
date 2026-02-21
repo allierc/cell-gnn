@@ -20,7 +20,7 @@ def choose_model(config=[], W=[], device=[]):
 
     dimension = config.simulation.dimension
 
-    params = config.simulation.params
+    params = config.simulation.particle_params
     p = torch.tensor(params, dtype=torch.float32, device=device).squeeze()
 
     sim_cls = get_simulator_class(particle_model_name)

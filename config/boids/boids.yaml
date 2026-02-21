@@ -2,7 +2,7 @@ description: "Boids 16 different types"
 dataset: "boids"
 
 simulation:
-  params:
+  particle_params:
     [
       [27.6, 92.5, 48.2],
       [32.0, 51.8, 29.8],

@@ -150,7 +150,7 @@ class SimulationConfig(BaseModel):
     excitation_value_map: Optional[str] = None
     excitation: str = "none"
 
-    params: list[list[float]] = None
+    particle_params: list[list[float]] = None
     params_mesh: list[list[float]] = None
     func_params: list[tuple] = None
 
