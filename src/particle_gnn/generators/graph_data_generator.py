@@ -582,23 +582,14 @@ def data_generate_particle_field(
         os.remove(f)
     copyfile(os.path.realpath(__file__), os.path.join(folder, "generation_code.py"))
 
-    X1_mesh, V1_mesh, T1_mesh, H1_mesh, N1_mesh, mesh_data = init_mesh(config, device=device)
+    mesh_state, mesh_data = init_mesh(config, device=device)
     mask_mesh = mesh_data["mask"].squeeze()
 
     if hasattr(sim, 'boundary') and sim.boundary == 'periodic':
         mask_mesh = torch.ones_like(mask_mesh, dtype=torch.bool)
 
-    model_p_p, bc_pos, bc_dpos = choose_model(config=config, device=device)
-    model_f_p = model_p_p
+    model, bc_pos, bc_dpos = choose_model(config=config, device=device)
 
-    index_particles = []
-    for n in range(n_particle_types):
-        index_particles.append(
-            np.arange(
-                (n_particles // n_particle_types) * n,
-                (n_particles // n_particle_types) * (n + 1),
-            )
-        )
     if has_particle_dropout:
         draw = np.random.permutation(np.arange(n_particles))
         cut = int(n_particles * (1 - tc.particle_dropout))
@@ -624,8 +615,18 @@ def data_generate_particle_field(
         n_features=dimension,
         time_chunks=2000,
     )
-    x_mesh_list = []
-    y_mesh_list = []
+    x_mesh_writer = ZarrSimulationWriterV3(
+        path=f"graphs_data/{dataset_name}/x_mesh_list_{run}",
+        n_particles=n_nodes,
+        dimension=dimension,
+        time_chunks=2000,
+    )
+    y_mesh_writer = ZarrArrayWriter(
+        path=f"graphs_data/{dataset_name}/y_mesh_list_{run}",
+        n_particles=n_nodes,
+        n_features=2,
+        time_chunks=2000,
+    )
     edge_p_p_list = []
     edge_f_p_list = []
     id_fig = 0
@@ -636,11 +637,9 @@ def data_generate_particle_field(
         shuffle_index = torch.randperm(n_particles, device=device)
         x.particle_type = x.particle_type[shuffle_index]
 
-    X1_mesh, _, _, H1_mesh, _, _ = init_mesh(config, device=device)
-    H1_mesh[mask_mesh == 0.0] = 0.0
+    mesh_state.field[mask_mesh == 0.0] = 0.0
     edge_cache = NeighborCache()
 
-    H1_mesh = torch.clamp(H1_mesh, min=0.0)
     torch.save(mesh_data, f"graphs_data/{dataset_name}/mesh_data_{run}.pt")
 
     check_and_clear_memory(
@@ -651,7 +650,7 @@ def data_generate_particle_field(
     )
     time.sleep(1)
 
-    for it in range(sim.start_frame, n_frames + 1):
+    for it in trange(sim.start_frame, n_frames + 1, ncols=100):
         if ("siren" in mc.field_type) & (it >= 0):
             im = imread(
                 f"graphs_data/{sim.node_value_map}"
@@ -659,26 +658,15 @@ def data_generate_particle_field(
             im = im[it].squeeze()
             im = np.rot90(im, 3)
             im = np.reshape(im, (n_nodes_per_axis * n_nodes_per_axis))
-            H1_mesh[:, 0:1] = torch.tensor(
+            mesh_state.field[:, 0:1] = torch.tensor(
                 im[:, None], dtype=torch.float32, device=device
             )
 
         x_packed = x.to_packed()
-        if it == sim.start_frame:
-            index_particles = get_index_particles(x_packed, n_particle_types, dimension)
+        index_particles = get_index_particles(x_packed, n_particle_types, dimension)
 
-        x_mesh = torch.concatenate(
-            (
-                N1_mesh.clone().detach(),
-                X1_mesh.clone().detach(),
-                V1_mesh.clone().detach(),
-                T1_mesh.clone().detach(),
-                H1_mesh.clone().detach(),
-            ),
-            1,
-        )
-
-        x_pf_packed = torch.concatenate((x_mesh, x_packed), dim=0)
+        x_mesh_packed = mesh_state.clone().detach().to_packed()
+        x_pf_packed = torch.concatenate((x_mesh_packed, x_packed), dim=0)
         x_pf_state = ParticleState.from_packed(x_pf_packed, dimension)
 
         with torch.no_grad():
@@ -717,8 +705,8 @@ def data_generate_particle_field(
             if not has_particle_dropout:
                 edge_f_p_list.append(edge_index_fp)
 
-            y0 = model_p_p(x, edge_index, has_field=False)
-            y1 = model_f_p(x_pf_state, edge_index_fp, has_field=True)[n_nodes:]
+            y0 = model(x, edge_index, has_field=False)
+            y1 = model(x_pf_state, edge_index_fp, has_field=True)[n_nodes:]
             y = y0 + y1
 
         # save frame to zarr
@@ -746,7 +734,7 @@ def data_generate_particle_field(
                 edge_index = adj_t.nonzero().t().contiguous()
                 edge_p_p_list.append(edge_index)
 
-                x_pf_dropout = torch.concatenate((x_mesh, x_sub_packed), dim=0)
+                x_pf_dropout = torch.concatenate((x_mesh_packed, x_sub_packed), dim=0)
                 x_pf_dropout_state = ParticleState.from_packed(x_pf_dropout, dimension)
                 pos_pf = x_pf_dropout_state.pos
 
@@ -772,9 +760,8 @@ def data_generate_particle_field(
                 x_writer.append_state(x.detach())
                 y_writer.append(to_numpy(y.clone().detach()))
 
-            x_mesh_list.append(x_mesh.clone().detach())
-            field_start = 2 + 2 * dimension
-            y_mesh_list.append(torch.zeros_like(x_mesh[:, field_start:field_start + 2]))
+            x_mesh_writer.append_state(mesh_state.detach())
+            y_mesh_writer.append(np.zeros((n_nodes, 2), dtype=np.float32))
 
         # particle update
         with torch.no_grad():
@@ -835,6 +822,8 @@ def data_generate_particle_field(
         # finalize zarr writers
         n_frames_written = x_writer.finalize()
         y_writer.finalize()
+        x_mesh_writer.finalize()
+        y_mesh_writer.finalize()
         print(f"generated {n_frames_written} frames total (saved as .zarr)")
 
         if has_particle_dropout:
@@ -851,8 +840,6 @@ def data_generate_particle_field(
                 inv_particle_dropout_mask,
             )
 
-        torch.save(x_mesh_list, f"graphs_data/{dataset_name}/x_mesh_list_{run}.pt")
-        torch.save(y_mesh_list, f"graphs_data/{dataset_name}/y_mesh_list_{run}.pt")
         torch.save(
             edge_p_p_list, f"graphs_data/{dataset_name}/edge_p_p_list{run}.pt"
         )

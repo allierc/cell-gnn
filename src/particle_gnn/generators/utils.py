@@ -6,7 +6,7 @@ from time import sleep
 from torch_geometric.utils import get_mesh_laplacian
 
 from particle_gnn.generators import PDE_A, PDE_B, PDE_G
-from particle_gnn.particle_state import ParticleState
+from particle_gnn.particle_state import ParticleState, FieldState
 from particle_gnn.utils import choose_boundary_values, to_numpy, get_equidistant_points
 
 
@@ -145,65 +145,59 @@ def random_rotation_matrix(device='cpu'):
 
 
 def init_mesh(config, device):
+    """initialize mesh state as a FieldState dataclass."""
 
     simulation_config = config.simulation
     model_config = config.graph_model
 
     n_nodes = simulation_config.n_nodes
-    n_particles = simulation_config.n_particles
     node_value_map = simulation_config.node_value_map
     field_grid = model_config.field_grid
-    max_radius = simulation_config.max_radius
 
     n_nodes_per_axis = int(np.sqrt(n_nodes))
     xs = torch.linspace(1 / (2 * n_nodes_per_axis), 1 - 1 / (2 * n_nodes_per_axis), steps=n_nodes_per_axis)
     ys = torch.linspace(1 / (2 * n_nodes_per_axis), 1 - 1 / (2 * n_nodes_per_axis), steps=n_nodes_per_axis)
-    x_mesh, y_mesh = torch.meshgrid(xs, ys, indexing='xy')
-    x_mesh = torch.reshape(x_mesh, (n_nodes_per_axis ** 2, 1))
-    y_mesh = torch.reshape(y_mesh, (n_nodes_per_axis ** 2, 1))
+    x_grid, y_grid = torch.meshgrid(xs, ys, indexing='xy')
+    x_grid = torch.reshape(x_grid, (n_nodes_per_axis ** 2, 1))
+    y_grid = torch.reshape(y_grid, (n_nodes_per_axis ** 2, 1))
     mesh_size = 1 / n_nodes_per_axis
-    pos_mesh = torch.zeros((n_nodes, 2), device=device)
-    pos_mesh[0:n_nodes, 0:1] = x_mesh[0:n_nodes]
-    pos_mesh[0:n_nodes, 1:2] = y_mesh[0:n_nodes]
+    pos = torch.zeros((n_nodes, 2), device=device)
+    pos[0:n_nodes, 0:1] = x_grid[0:n_nodes]
+    pos[0:n_nodes, 1:2] = y_grid[0:n_nodes]
 
     i0 = imread(f'graphs_data/{node_value_map}')
     if len(i0.shape) == 2:
         i0 = np.flipud(i0)
-        values = i0[(to_numpy(pos_mesh[:, 1]) * 255).astype(int), (to_numpy(pos_mesh[:, 0]) * 255).astype(int)]
+        values = i0[(to_numpy(pos[:, 1]) * 255).astype(int), (to_numpy(pos[:, 0]) * 255).astype(int)]
 
-    mask_mesh = (x_mesh > torch.min(x_mesh) + 0.02) & (x_mesh < torch.max(x_mesh) - 0.02) & (y_mesh > torch.min(y_mesh) + 0.02) & (y_mesh < torch.max(y_mesh) - 0.02)
+    mask_mesh = (x_grid > torch.min(x_grid) + 0.02) & (x_grid < torch.max(x_grid) - 0.02) & (y_grid > torch.min(y_grid) + 0.02) & (y_grid < torch.max(y_grid) - 0.02)
 
-    if 'grid' in field_grid:
-        pos_mesh = pos_mesh
-    else:
+    if 'grid' not in field_grid:
         if 'pattern_Null.tif' in simulation_config.node_value_map:
-            pos_mesh = pos_mesh + torch.randn(n_nodes, 2, device=device) * mesh_size / 24
+            pos = pos + torch.randn(n_nodes, 2, device=device) * mesh_size / 24
         else:
-            pos_mesh = pos_mesh + torch.randn(n_nodes, 2, device=device) * mesh_size / 8
+            pos = pos + torch.randn(n_nodes, 2, device=device) * mesh_size / 8
 
-    # For PDE_ParticleField models, use zero-initialized node values
-    node_value = torch.zeros((n_nodes, 2), device=device)
+    mesh_state = FieldState(
+        index=torch.arange(n_nodes, device=device),
+        pos=pos,
+        vel=torch.zeros((n_nodes, 2), device=device),
+        particle_type=torch.zeros(n_nodes, device=device).long(),
+        field=torch.zeros((n_nodes, 2), device=device),
+    )
 
-    type_mesh = torch.zeros((n_nodes, 1), device=device)
-
-    node_id_mesh = torch.arange(n_nodes, device=device)
-    node_id_mesh = node_id_mesh[:, None]
-    dpos_mesh = torch.zeros((n_nodes, 2), device=device)
-
-    x_mesh = torch.concatenate((node_id_mesh.clone().detach(), pos_mesh.clone().detach(), dpos_mesh.clone().detach(),
-                                type_mesh.clone().detach(), node_value.clone().detach()), 1)
-
-    pos = to_numpy(x_mesh[:, 1:3])
-    tri = Delaunay(pos, qhull_options='QJ')
+    # Delaunay triangulation
+    pos_np = to_numpy(mesh_state.pos)
+    tri = Delaunay(pos_np, qhull_options='QJ')
     face = torch.from_numpy(tri.simplices)
     face_longest_edge = np.zeros((face.shape[0], 1))
 
     # removal of skinny faces
     sleep(0.5)
     for k in range(face.shape[0]):
-        x1 = pos[face[k, 0], :]
-        x2 = pos[face[k, 1], :]
-        x3 = pos[face[k, 2], :]
+        x1 = pos_np[face[k, 0], :]
+        x2 = pos_np[face[k, 1], :]
+        x3 = pos_np[face[k, 2], :]
         a = np.sqrt(np.sum((x1 - x2) ** 2))
         b = np.sqrt(np.sum((x2 - x3) ** 2))
         c = np.sqrt(np.sum((x3 - x1) ** 2))
@@ -218,17 +212,11 @@ def init_mesh(config, device):
     face = face.t().contiguous()
     face = face.to(device, torch.long)
 
-    pos_3d = torch.cat((x_mesh[:, 1:3], torch.ones((x_mesh.shape[0], 1), device=device)), dim=1)
+    pos_3d = torch.cat((mesh_state.pos, torch.ones((n_nodes, 1), device=device)), dim=1)
     edge_index_mesh, edge_weight_mesh = get_mesh_laplacian(pos=pos_3d, face=face, normalization="None")
     edge_weight_mesh = edge_weight_mesh.to(dtype=torch.float32)
 
     mesh_data = {'mesh_pos': pos_3d, 'face': face, 'edge_index': edge_index_mesh, 'edge_weight': edge_weight_mesh,
                  'mask': mask_mesh, 'size': mesh_size}
 
-    # For PDE_ParticleField models, all mesh nodes have type 0
-    if (config.graph_model.particle_model_name == 'PDE_ParticleField_A') | (config.graph_model.particle_model_name == 'PDE_ParticleField_B'):
-        type_mesh = 0 * type_mesh
-
-    type_mesh = type_mesh.to(dtype=torch.float32)
-
-    return pos_mesh, dpos_mesh, type_mesh, node_value, node_id_mesh, mesh_data
+    return mesh_state, mesh_data

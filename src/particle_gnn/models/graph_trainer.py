@@ -20,8 +20,8 @@ from particle_gnn.models.Siren_Network import *
 from particle_gnn.sparsify import EmbeddingCluster, sparsify_cluster, clustering_evaluation
 from particle_gnn.generators.utils import choose_model
 from particle_gnn.fitting_models import linear_model
-from particle_gnn.particle_state import ParticleState, ParticleTimeSeries
-from particle_gnn.zarr_io import load_simulation_data, load_raw_array
+from particle_gnn.particle_state import ParticleState, ParticleTimeSeries, FieldState, FieldTimeSeries
+from particle_gnn.zarr_io import load_simulation_data, load_field_data, load_raw_array
 
 from geomloss import SamplesLoss
 from sklearn.neighbors import NearestNeighbors
@@ -1163,17 +1163,18 @@ def data_train_particle_field(config, erase, best_model, device):
     logger.info(f'vnorm ynorm: {to_numpy(vnorm)} {to_numpy(ynorm)}')
 
     time.sleep(0.5)
-    x_mesh_list = torch.load(f'graphs_data/{dataset_name}/x_mesh_list_0.pt', map_location=device, weights_only=False)
-    y_mesh_list = torch.load(f'graphs_data/{dataset_name}/y_mesh_list_0.pt', map_location=device, weights_only=False)
-    h = y_mesh_list[0].clone().detach()
+    mesh_ts = load_field_data(f'graphs_data/{dataset_name}/x_mesh_list_0', dimension)
+    y_mesh_raw_np = load_raw_array(f'graphs_data/{dataset_name}/y_mesh_list_0')
+    y_mesh_raw = torch.tensor(y_mesh_raw_np, dtype=torch.float32, device=device)
+    h = y_mesh_raw[0].clone().detach()
     for k in range(n_frames - 5):
-        h = torch.cat((h, y_mesh_list[k].clone().detach()), 0)
+        h = torch.cat((h, y_mesh_raw[k].clone().detach()), 0)
     hnorm = torch.std(h)
     torch.save(hnorm, os.path.join(log_dir, 'hnorm.pt'))
     print(f'hnorm: {to_numpy(hnorm)}')
     logger.info(f'hnorm: {to_numpy(hnorm)}')
     time.sleep(0.5)
-    mesh_data = torch.load(f'graphs_data/{dataset_name}/mesh_data_1.pt', map_location=device, weights_only=False)
+    mesh_data = torch.load(f'graphs_data/{dataset_name}/mesh_data_0.pt', map_location=device, weights_only=False)
     mask_mesh = mesh_data['mask']
     mask_mesh = mask_mesh.repeat(batch_size, 1)
     edge_index_mesh = mesh_data['edge_index']
@@ -1279,18 +1280,16 @@ def data_train_particle_field(config, erase, best_model, device):
 
                 k = np.random.randint(n_frames - 3)
                 x = x_ts.frame(k).to_packed().to(device)
-                x_mesh = x_mesh_list[k].clone().detach()
+                mesh_frame = mesh_ts.frame(k).to(device)
 
-                mesh_field_col = 2 + 2 * dimension
-                mesh_vel_start = 1 + dimension
-                mesh_vel_end = 1 + 2 * dimension
                 match mc.field_type:
                     case 'tensor':
-                        x_mesh[:, mesh_field_col:mesh_field_col + 1] = model.field[0]
+                        mesh_frame.field[:, 0:1] = model.field[0]
                     case 'siren':
-                        x_mesh[:, mesh_field_col:mesh_field_col + 1] = model_f() ** 2
+                        mesh_frame.field[:, 0:1] = model_f() ** 2
                     case 'siren_with_time':
-                        x_mesh[:, mesh_field_col:mesh_field_col + 1] = model_f(time=k / n_frames) ** 2
+                        mesh_frame.field[:, 0:1] = model_f(time=k / n_frames) ** 2
+                x_mesh = mesh_frame.to_packed()
                 x_particle_field = torch.concatenate((x_mesh, x), dim=0)
 
                 edges = edge_p_p_list[k]

@@ -1,10 +1,11 @@
 """zarr/tensorstore I/O utilities for simulation data.
 
 provides:
-- ZarrSimulationWriterV3: per-field writer for ParticleState data (static + dynamic fields)
+- ZarrSimulationWriterV3: per-field writer for ParticleState/FieldState data (static + dynamic fields)
 - ZarrArrayWriter: incremental writer for raw (T, N, F) arrays (e.g. derivative targets)
 - detect_format: check if V3 zarr or .npy exists at path
 - load_simulation_data: load as ParticleTimeSeries with optional field selection
+- load_field_data: load as FieldTimeSeries (for mesh/field nodes)
 - load_raw_array: load raw numpy array from zarr or npy (for derivative targets etc.)
 """
 
@@ -17,7 +18,7 @@ import numpy as np
 import tensorstore as ts
 
 if TYPE_CHECKING:
-    from particle_gnn.particle_state import ParticleState, ParticleTimeSeries
+    from particle_gnn.particle_state import ParticleState, ParticleTimeSeries, FieldState, FieldTimeSeries
 
 
 class ZarrArrayWriter:
@@ -125,7 +126,7 @@ _STATIC_FIELDS = ['particle_type']
 
 
 class ZarrSimulationWriterV3:
-    """per-field zarr writer — each ParticleState field gets its own zarr array.
+    """per-field zarr writer — each ParticleState/FieldState field gets its own zarr array.
 
     storage structure:
         path/
@@ -134,12 +135,12 @@ class ZarrSimulationWriterV3:
             vel.zarr            # (T, N, dim) float32 — dynamic
             field.zarr          # (T, N, F) float32 — dynamic (optional)
 
-    note: index is NOT saved — it is arange(n_particles) and constructed at load time.
+    note: index is NOT saved — it is arange(n) and constructed at load time.
 
     usage:
         writer = ZarrSimulationWriterV3(path, n_particles=1000, dimension=2)
         for state in simulation:
-            writer.append_state(state)
+            writer.append_state(state)  # accepts ParticleState or FieldState
         writer.finalize()
     """
 
@@ -162,8 +163,8 @@ class ZarrSimulationWriterV3:
         self._dynamic_initialized = False
         self._field_shapes: dict[str, tuple] = {}
 
-    def _save_static(self, state: ParticleState):
-        """save static fields from first ParticleState frame."""
+    def _save_static(self, state: ParticleState | FieldState):
+        """save static fields from first frame."""
         from particle_gnn.utils import to_numpy
 
         self.path.mkdir(parents=True, exist_ok=True)
@@ -198,8 +199,8 @@ class ZarrSimulationWriterV3:
 
         self._static_saved = True
 
-    def _get_dynamic_fields(self, state: ParticleState) -> dict[str, np.ndarray]:
-        """extract dynamic field arrays from a ParticleState."""
+    def _get_dynamic_fields(self, state: ParticleState | FieldState) -> dict[str, np.ndarray]:
+        """extract dynamic field arrays from a ParticleState or FieldState."""
         from particle_gnn.utils import to_numpy
 
         fields = {}
@@ -253,8 +254,8 @@ class ZarrSimulationWriterV3:
 
         self._dynamic_initialized = True
 
-    def append_state(self, state: ParticleState):
-        """append one frame from ParticleState."""
+    def append_state(self, state: ParticleState | FieldState):
+        """append one frame from ParticleState or FieldState."""
         if not self._static_saved:
             self._save_static(state)
 
@@ -425,6 +426,105 @@ def _load_zarr_v3(path: Path, fields=None) -> ParticleTimeSeries:
         kwargs[name] = t
 
     return ParticleTimeSeries(**kwargs)
+
+
+def load_field_data(path: str | Path, dimension: int, fields=None) -> FieldTimeSeries:
+    """load mesh/field data as FieldTimeSeries (V3 zarr or legacy .pt).
+
+    args:
+        path: base path (with or without extension)
+        dimension: spatial dimension (2 or 3)
+        fields: list of field names to load (V3 only, e.g. ['pos', 'field']).
+                None = all fields.
+
+    returns:
+        FieldTimeSeries with requested fields (others are None)
+
+    raises:
+        FileNotFoundError: if no data found at path
+    """
+    import torch
+    from particle_gnn.particle_state import FieldTimeSeries
+
+    path = Path(path)
+    base_path = path.with_suffix('') if path.suffix in ('.npy', '.zarr') else path
+
+    fmt = detect_format(base_path)
+
+    if fmt == 'zarr_v3':
+        return _load_field_zarr_v3(base_path, fields)
+
+    # legacy .pt fallback (list of packed tensors)
+    pt_path = Path(str(base_path) + '.pt')
+    if pt_path.exists():
+        frames = torch.load(pt_path, map_location='cpu', weights_only=False)
+        return FieldTimeSeries.from_packed_list(frames, dimension)
+
+    raise FileNotFoundError(f"no .zarr or .pt found at {base_path}")
+
+
+def _load_field_zarr_v3(path: Path, fields=None) -> FieldTimeSeries:
+    """load per-field zarr arrays into FieldTimeSeries.
+
+    FieldTimeSeries has static pos (N, dim), so pos is loaded from frame 0.
+    """
+    import torch
+    from particle_gnn.particle_state import FieldTimeSeries
+
+    def _read_zarr(zarr_path):
+        spec = {
+            'driver': 'zarr',
+            'kvstore': {'driver': 'file', 'path': str(zarr_path)},
+        }
+        return ts.open(spec).result().read().result()
+
+    all_dynamic = {'vel', 'field'}
+    all_static = {'particle_type', 'pos'}
+    load_fields = set(fields) if fields else (all_dynamic | all_static)
+
+    kwargs = {}
+
+    # static: particle_type
+    pt_path = path / 'particle_type.zarr'
+    if pt_path.exists() and 'particle_type' in load_fields:
+        kwargs['particle_type'] = torch.from_numpy(np.array(_read_zarr(pt_path))).long()
+
+    # static: pos — saved as (T, N, dim), take frame 0 for FieldTimeSeries
+    pos_path = path / 'pos.zarr'
+    if pos_path.exists() and 'pos' in load_fields:
+        arr = np.array(_read_zarr(pos_path))
+        if arr.ndim == 3:
+            kwargs['pos'] = torch.from_numpy(arr[0]).float()
+        else:
+            kwargs['pos'] = torch.from_numpy(arr).float()
+
+    # infer n for index reconstruction
+    if 'particle_type' in kwargs:
+        n = kwargs['particle_type'].shape[0]
+    elif 'pos' in kwargs:
+        n = kwargs['pos'].shape[0]
+    else:
+        for name in all_dynamic:
+            zp = path / f'{name}.zarr'
+            if zp.exists():
+                arr = np.array(_read_zarr(zp))
+                n = arr.shape[1]
+                break
+        else:
+            raise FileNotFoundError(f"no fields found at {path}")
+    kwargs['index'] = torch.arange(n, dtype=torch.long)
+
+    # dynamic fields: vel, field
+    for name in all_dynamic:
+        if name not in load_fields:
+            continue
+        zp = path / f'{name}.zarr'
+        if not zp.exists():
+            continue
+        arr = np.array(_read_zarr(zp))
+        kwargs[name] = torch.from_numpy(arr).float()
+
+    return FieldTimeSeries(**kwargs)
 
 
 def load_raw_array(path: str | Path) -> np.ndarray:
