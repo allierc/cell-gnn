@@ -421,7 +421,7 @@ def data_train_particle(config, erase, best_model, device):
                                                                 model_MLP=model.lin_edge, model=model,
                                                                 n_nodes=0,
                                                                 n_particles=n_particles, ynorm=ynorm,
-                                                                type_list=to_numpy(x[:, type_col].long()),
+                                                                type_list=to_numpy(type_list),
                                                                 cmap=cmap, update_type='NA', device=device)
 
             labels, n_clusters, new_labels = sparsify_cluster(tc.cluster_method, proj_interaction, embedding,
@@ -1402,7 +1402,7 @@ def data_train_particle_field(config, erase, best_model, device):
                                                             model_MLP=model.lin_edge, model=model,
                                                             n_nodes=0,
                                                             n_particles=n_particles, ynorm=ynorm,
-                                                            type_list=to_numpy(x[:, type_col]),
+                                                            type_list=to_numpy(type_list),
                                                             cmap=cmap, update_type='NA', device=device)
 
         labels, n_clusters, new_labels = sparsify_cluster(tc.cluster_method, proj_interaction, embedding,
