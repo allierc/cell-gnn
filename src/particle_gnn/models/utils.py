@@ -100,6 +100,8 @@ def get_in_features(rr=None, embedding=None, model=[], model_name=[], max_radius
                                      rr[:, None] / max_radius, 0 * rr[:, None],
                                      0 * rr[:, None],
                                      0 * rr[:, None], 0 * rr[:, None], embedding), dim=1)
+        case _:
+            raise ValueError(f'Unknown model name in get_in_features: {model_name}')
 
     return in_features
 
@@ -410,7 +412,7 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_particles, n_par
                         embedding_ = model.a[n, :] * torch.ones((1000, model_config.embedding_dim), device=device)
                     else:
                         embedding_ = model.a[0, n, :] * torch.ones((1000, model_config.embedding_dim), device=device)
-                    in_features = get_in_features(rr, embedding_, config.graph_model.particle_model_name, max_radius)
+                    in_features = get_in_features(rr=rr, embedding=embedding_, model_name=config.graph_model.particle_model_name, max_radius=max_radius)
                     with torch.no_grad():
                         func = model.lin_edge(in_features.float())
                     func = func[:, 0]

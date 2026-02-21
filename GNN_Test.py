@@ -512,8 +512,9 @@ def main():
         config.dataset = pre_folder + config.dataset
         config.config_file = pre_folder + config_name
 
-        # Override n_epochs to 1 for fast regression testing
+        # Override for fast regression testing
         config.training.n_epochs = 1
+        config.training.small_init_batch_size = False
 
         if device is None:
             device = set_device(config.training.device)

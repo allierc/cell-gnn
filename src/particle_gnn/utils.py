@@ -343,10 +343,11 @@ def create_log_dir(config=[], erase=True):
             os.remove(f)
     os.makedirs(os.path.join(log_dir, 'tmp_recons'), exist_ok=True)
 
-    logging.basicConfig(filename=os.path.join(log_dir, 'training.log'),
-                        format='%(asctime)s %(message)s',
-                        filemode='w')
     logger = logging.getLogger()
+    logger.handlers.clear()
+    file_handler = logging.FileHandler(os.path.join(log_dir, 'training.log'), mode='w')
+    file_handler.setFormatter(logging.Formatter('%(asctime)s %(message)s'))
+    logger.addHandler(file_handler)
     logger.setLevel(logging.INFO)
 
     return log_dir, logger
