@@ -682,3 +682,45 @@ class VertexTimeSeries:
             pos=[p.to(device) for p in self.pos] if self.pos is not None else None,
             edge_index=[e.to(device) for e in self.edge_index] if self.edge_index is not None else None,
         )
+
+
+@dataclass
+class MeshTimeSeries:
+    """triangulated surface mesh timeseries (3D tissue segmentation meshes).
+
+    each frame has a multi-cell mesh where faces have boundary labels
+    indicating which two cells share that face.  vertex/face counts can
+    change per frame (stored as ragged lists).
+    """
+
+    # ragged per-frame lists
+    vertices: list[torch.Tensor] | None = None      # list of (V_t, 3) float32
+    faces: list[torch.Tensor] | None = None         # list of (F_t, 3) int32
+    face_labels: list[torch.Tensor] | None = None   # list of (F_t, 2) int32
+
+    @property
+    def n_frames(self) -> int:
+        if self.vertices is not None:
+            return len(self.vertices)
+        if self.faces is not None:
+            return len(self.faces)
+        raise ValueError("MeshTimeSeries has no populated fields")
+
+    def frame(self, t: int) -> tuple:
+        """extract single-frame mesh data at time t.
+
+        returns:
+            (vertices, faces, face_labels) tuple of tensors (or None)
+        """
+        return (
+            self.vertices[t] if self.vertices is not None else None,
+            self.faces[t] if self.faces is not None else None,
+            self.face_labels[t] if self.face_labels is not None else None,
+        )
+
+    def to(self, device: torch.device) -> MeshTimeSeries:
+        return MeshTimeSeries(
+            vertices=[v.to(device) for v in self.vertices] if self.vertices is not None else None,
+            faces=[f.to(device) for f in self.faces] if self.faces is not None else None,
+            face_labels=[l.to(device) for l in self.face_labels] if self.face_labels is not None else None,
+        )

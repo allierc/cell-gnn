@@ -281,6 +281,9 @@ def add_pre_folder(config_file_):
     elif 'embryo' in config_file_:
         config_file = os.path.join('misc', config_file_)
         pre_folder = 'misc/'
+    elif 'gland' in config_file_:
+        config_file = os.path.join('misc', config_file_)
+        pre_folder = 'misc/'
     else:
         raise ValueError(f'unknown config file type: {config_file_}')
 

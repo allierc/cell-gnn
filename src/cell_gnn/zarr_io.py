@@ -630,6 +630,61 @@ def load_vertex_timeseries(path: str | Path) -> VertexTimeSeries | None:
     return VertexTimeSeries(pos=pos, edge_index=edge_index)
 
 
+def save_mesh_frame(
+    path: str | Path,
+    t_idx: int,
+    vertices: torch.Tensor,
+    faces: torch.Tensor,
+    face_labels: torch.Tensor,
+) -> None:
+    """save a single mesh frame to mesh/ subdirectory.
+
+    saves as graphs_data/.../mesh/frame_XXXX.pt containing a dict with
+    'vertices' (V,3) float32, 'faces' (F,3) int32, 'face_labels' (F,2) int32.
+    """
+    import torch
+    mesh_dir = Path(path) / 'mesh'
+    mesh_dir.mkdir(parents=True, exist_ok=True)
+    torch.save(
+        {'vertices': vertices, 'faces': faces, 'face_labels': face_labels},
+        mesh_dir / f'frame_{t_idx:04d}.pt',
+    )
+
+
+def load_mesh_timeseries(path: str | Path):
+    """load MeshTimeSeries from per-frame .pt files in mesh/ subdirectory.
+
+    returns:
+        MeshTimeSeries or None if no mesh data found
+    """
+    import torch
+    from cell_gnn.cell_state import MeshTimeSeries
+
+    mesh_dir = Path(path) / 'mesh'
+    if not mesh_dir.exists():
+        return None
+
+    frame_files = sorted(mesh_dir.glob('frame_*.pt'))
+    if not frame_files:
+        return None
+
+    vertices_list = []
+    faces_list = []
+    face_labels_list = []
+
+    for ff in frame_files:
+        data = torch.load(ff, map_location='cpu', weights_only=False)
+        vertices_list.append(data['vertices'])
+        faces_list.append(data['faces'])
+        face_labels_list.append(data['face_labels'])
+
+    return MeshTimeSeries(
+        vertices=vertices_list,
+        faces=faces_list,
+        face_labels=face_labels_list,
+    )
+
+
 def load_raw_array(path: str | Path) -> np.ndarray:
     """load a raw numpy array from .zarr or .npy (for y_list derivative targets etc.).
 

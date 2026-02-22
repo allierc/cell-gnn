@@ -6,7 +6,6 @@ import time
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-from matplotlib import rc
 import numpy as np
 import torch
 import torch.nn as nn
@@ -405,7 +404,7 @@ def data_train_cell(config, erase, best_model, device):
         logger.info(f'Epoch {epoch + 1}, Learning Rate: {scheduler.get_last_lr()[0]}')
 
         from cell_gnn.figure_style import default_style as fig_style
-        fig = plt.figure(figsize=(12, 10))
+        fig = plt.figure(figsize=(12, 10), facecolor=fig_style.background)
 
         labels, n_clusters, new_labels, func_list, model_a_, accuracy = \
             plot_training_summary_panels(fig, log_dir, model, config, n_cells, n_cell_types,
@@ -434,10 +433,10 @@ def data_train_cell(config, erase, best_model, device):
                     if pos.size > 0:
                         target_func = torch.median(func_list[pos, :], dim=0).values.squeeze()
                         y_func_list[pos] = target_func
-                    plt.plot(to_numpy(target_func) * to_numpy(ynorm), linewidth=2, alpha=1)
-                plt.xticks([])
-                plt.yticks([])
-                plt.tight_layout()
+                    ax_tmp.plot(to_numpy(target_func) * to_numpy(ynorm), linewidth=fig_style.line_width, alpha=1)
+                ax_tmp.set_xticks([])
+                ax_tmp.set_yticks([])
+                fig_tmp.tight_layout()
                 fig_style.savefig(fig_tmp, f"./{log_dir}/tmp_training/Fig_{epoch}_before training function.tif")
 
                 lr_embedding = 1E-12
@@ -475,7 +474,7 @@ def data_train_cell(config, erase, best_model, device):
                 optimizer, n_total_params = set_trainable_parameters(model, lr_embedding, lr)
                 logger.info(f'Learning rates: {lr}, {lr_embedding}')
 
-        plt.tight_layout()
+        fig.tight_layout()
         fig_style.savefig(fig, f"./{log_dir}/tmp_training/Fig_{epoch}.tif")
 
 
@@ -812,7 +811,8 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
             from cell_gnn.figure_style import default_style as fig_style, dark_style
             if 'latex' in style:
                 plt.rcParams['text.usetex'] = True
-                rc('font', **{'family': 'serif', 'serif': ['Palatino']})
+                plt.rcParams['font.family'] = 'serif'
+                plt.rcParams['font.serif'] = ['Palatino']
             if 'black' in style:
                 active_style = dark_style
             else:
@@ -898,17 +898,13 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
                     plt.yticks([])
 
             if 'latex' in style:
-                plt.xlabel(r'$x$', fontsize=active_style.frame_title_font_size * 1.6)
-                plt.ylabel(r'$y$', fontsize=active_style.frame_title_font_size * 1.6)
-                plt.xticks(fontsize=active_style.frame_title_font_size)
-                plt.yticks(fontsize=active_style.frame_title_font_size)
+                active_style.xlabel(ax, r'$x$', fontsize=active_style.frame_title_font_size * 1.6)
+                active_style.ylabel(ax, r'$y$', fontsize=active_style.frame_title_font_size * 1.6)
+                ax.tick_params(axis='both', labelsize=active_style.frame_title_font_size)
             if 'frame' in style:
-                plt.xlabel('x', fontsize=active_style.frame_title_font_size)
-                plt.ylabel('y', fontsize=active_style.frame_title_font_size)
-                plt.xticks(fontsize=active_style.frame_title_font_size)
-                plt.yticks(fontsize=active_style.frame_title_font_size)
-                plt.text(0, 1.1, f'   ', ha='left', va='top', transform=ax.transAxes, fontsize=active_style.frame_title_font_size)
-                ax.tick_params(axis='both', which='major', pad=15)
+                active_style.xlabel(ax, 'x', fontsize=active_style.frame_title_font_size)
+                active_style.ylabel(ax, 'y', fontsize=active_style.frame_title_font_size)
+                ax.tick_params(axis='both', labelsize=active_style.frame_title_font_size, pad=15)
             if 'arrow' in style:
                 mask = to_numpy(x[:, vel_start + 1]) != 0
                 px = to_numpy(x[:, pos_start + 1])
@@ -932,7 +928,7 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
                 plt.xlim([0, 1])
                 plt.ylim([0, 1])
             if 'name' in style:
-                plt.title(f"{os.path.basename(log_dir)}", fontsize=active_style.font_size * 1.7)
+                ax.set_title(f"{os.path.basename(log_dir)}", fontsize=active_style.font_size * 1.7, color=active_style.foreground)
             if 'no_ticks' in style:
                 plt.xticks([])
                 plt.yticks([])
@@ -1343,7 +1339,7 @@ def data_train_cell_field(config, erase, best_model, device):
         torch.save(list_loss, os.path.join(log_dir, 'loss.pt'))
 
         from cell_gnn.figure_style import default_style as fig_style
-        fig = plt.figure(figsize=(12, 10))
+        fig = plt.figure(figsize=(12, 10), facecolor=fig_style.background)
 
         labels, n_clusters, new_labels, func_list, model_a_, accuracy = \
             plot_training_summary_panels(fig, log_dir, model, config, n_cells, n_cell_types,
@@ -1370,10 +1366,10 @@ def data_train_cell_field(config, erase, best_model, device):
                     if pos.size > 0:
                         target_func = torch.median(func_list[pos, :], dim=0).values.squeeze()
                         y_func_list[pos] = target_func
-                    plt.plot(to_numpy(target_func) * to_numpy(ynorm), linewidth=2, alpha=1)
-                plt.xticks([])
-                plt.yticks([])
-                plt.tight_layout()
+                    ax_tmp.plot(to_numpy(target_func) * to_numpy(ynorm), linewidth=fig_style.line_width, alpha=1)
+                ax_tmp.set_xticks([])
+                ax_tmp.set_yticks([])
+                fig_tmp.tight_layout()
                 fig_style.savefig(fig_tmp, f"./{log_dir}/tmp_training/Fig_{epoch}_before training function.tif")
 
                 lr_embedding = 1E-12
@@ -1411,5 +1407,5 @@ def data_train_cell_field(config, erase, best_model, device):
                 optimizer, n_total_params = set_trainable_parameters(model, lr_embedding, lr)
                 logger.info(f'Learning rates: {lr}, {lr_embedding}')
 
-        plt.tight_layout()
+        fig.tight_layout()
         fig_style.savefig(fig, f"./{log_dir}/tmp_training/Fig_{epoch}.tif")

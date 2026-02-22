@@ -5,7 +5,6 @@ import time
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from matplotlib import rc
 from scipy import stats
 from tqdm import trange
 
@@ -62,6 +61,18 @@ def data_generate(
     if has_embryo_data:
         from cell_gnn.generators.embryo_loader import load_from_embryo
         load_from_embryo(
+            config,
+            visualize=visualize,
+            step=step,
+            device=device,
+            save=save,
+        )
+        return
+
+    has_gland_data = 'gland' in config.data_folder_name
+    if has_gland_data:
+        from cell_gnn.generators.gland_loader import load_from_gland
+        load_from_gland(
             config,
             visualize=visualize,
             step=step,
@@ -200,7 +211,7 @@ def load_from_data(
 
         # 3D scatter plot
         if visualize and (t % step == 0) and dimension == 3:
-            fig = plt.figure(figsize=(20, 10))
+            fig = plt.figure(figsize=(20, 10), facecolor=default_style.background)
 
             ax1 = fig.add_subplot(121, projection="3d")
             pos_all = pos[t]  # (N, 3)
@@ -227,10 +238,10 @@ def load_from_data(
             ax1.set_xlim([0, 1])
             ax1.set_ylim([0, 1])
             ax1.set_zlim([0, 1])
-            ax1.set_xlabel("X")
-            ax1.set_ylabel("Y")
-            ax1.set_zlabel("Z")
-            ax1.set_title(f"frame {t}")
+            default_style.xlabel(ax1, "X")
+            default_style.ylabel(ax1, "Y")
+            ax1.set_zlabel("Z", fontsize=default_style.label_font_size, color=default_style.foreground)
+            ax1.set_title(f"frame {t}", fontsize=default_style.font_size, color=default_style.foreground)
 
             ax2 = fig.add_subplot(122)
             z_center, z_thickness = 0.5, 0.1
@@ -260,17 +271,17 @@ def load_from_data(
                         )
             ax2.set_xlim([0, 1])
             ax2.set_ylim([0, 1])
-            ax2.set_xlabel("X")
-            ax2.set_ylabel("Y")
+            default_style.xlabel(ax2, "X")
+            default_style.ylabel(ax2, "Y")
             ax2.set_title(
-                f"Z cross-section ({z_center - z_thickness:.1f} < z < {z_center + z_thickness:.1f})"
+                f"Z cross-section ({z_center - z_thickness:.1f} < z < {z_center + z_thickness:.1f})",
+                fontsize=default_style.font_size, color=default_style.foreground,
             )
             ax2.set_aspect("equal")
 
             plt.tight_layout()
             num = f"{t:06}"
-            fig.savefig(f"graphs_data/{dataset_name}/Fig/Fig_{run}_{num}.tif", dpi=150)
-            plt.close(fig)
+            default_style.savefig(fig, f"graphs_data/{dataset_name}/Fig/Fig_{run}_{num}.tif")
 
     n_written = x_writer.finalize()
     y_writer.finalize()
@@ -470,7 +481,8 @@ def data_generate_cell(
 
             if "latex" in style:
                 plt.rcParams["text.usetex"] = True
-                rc("font", **{"family": "serif", "serif": ["Palatino"]})
+                plt.rcParams["font.family"] = "serif"
+                plt.rcParams["font.serif"] = ["Palatino"]
 
             if "bw" in style:
                 fig, ax = fig_init(formatx="%.1f", formaty="%.1f")
@@ -501,16 +513,10 @@ def data_generate_cell(
                 if "gravity_ode" in mc.cell_model_name:
                     plt.xlim([-2, 2])
                     plt.ylim([-2, 2])
-                if "latex" in style:
-                    plt.xlabel(r"$x$", fontsize=active_style.frame_title_font_size * 1.6)
-                    plt.ylabel(r"$y$", fontsize=active_style.frame_title_font_size * 1.6)
-                    plt.xticks(fontsize=active_style.frame_title_font_size)
-                    plt.yticks(fontsize=active_style.frame_title_font_size)
-                elif "frame" in style:
-                    plt.xlabel(r"$x$", fontsize=active_style.frame_title_font_size * 1.6)
-                    plt.ylabel(r"$y$", fontsize=active_style.frame_title_font_size * 1.6)
-                    plt.xticks(fontsize=active_style.frame_title_font_size)
-                    plt.yticks(fontsize=active_style.frame_title_font_size)
+                if "latex" in style or "frame" in style:
+                    active_style.xlabel(ax, r"$x$", fontsize=active_style.frame_title_font_size * 1.6)
+                    active_style.ylabel(ax, r"$y$", fontsize=active_style.frame_title_font_size * 1.6)
+                    ax.tick_params(axis="both", labelsize=active_style.frame_title_font_size)
                 else:
                     plt.xticks([])
                     plt.yticks([])
@@ -633,16 +639,13 @@ def data_generate_cell(
                         plt.xlim([-2, 2])
                         plt.ylim([-2, 2])
                     if "latex" in style:
-                        plt.xlabel(r"$x$", fontsize=active_style.frame_title_font_size * 1.6)
-                        plt.ylabel(r"$y$", fontsize=active_style.frame_title_font_size * 1.6)
-                        plt.xticks(fontsize=active_style.frame_title_font_size)
-                        plt.yticks(fontsize=active_style.frame_title_font_size)
+                        active_style.xlabel(ax, r"$x$", fontsize=active_style.frame_title_font_size * 1.6)
+                        active_style.ylabel(ax, r"$y$", fontsize=active_style.frame_title_font_size * 1.6)
+                        ax.tick_params(axis="both", labelsize=active_style.frame_title_font_size)
                     if "frame" in style:
-                        plt.xlabel("x", fontsize=active_style.frame_title_font_size)
-                        plt.ylabel("y", fontsize=active_style.frame_title_font_size)
-                        plt.xticks(fontsize=active_style.frame_title_font_size)
-                        plt.yticks(fontsize=active_style.frame_title_font_size)
-                        ax.tick_params(axis="both", which="major", pad=15)
+                        active_style.xlabel(ax, "x", fontsize=active_style.frame_title_font_size)
+                        active_style.ylabel(ax, "y", fontsize=active_style.frame_title_font_size)
+                        ax.tick_params(axis="both", labelsize=active_style.frame_title_font_size, pad=15)
                         active_style.annotate(ax, f"frame {it}", (0, 1.1),
                             ha="left", va="top",
                             fontsize=active_style.frame_title_font_size)

@@ -293,8 +293,6 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
     dimension = simulation_config.dimension
     type_col = 1 + 2 * dimension
 
-    matplotlib.rcParams['savefig.pad_inches'] = 0
-
     # --- Embedding scatter plot ---
     if n_runs == 3:
         fig, axes = style.figure(ncols=3, width=24)
@@ -819,7 +817,7 @@ def plot_training_summary_panels(fig, log_dir, model, config, n_cells, n_cell_ty
                    f'n_neighbors={n_neighbors}  min_dist={min_dist}',
                    (0.02, 0.98), verticalalignment='top',
                    fontsize=style.annotation_font_size)
-    ax4.tick_params(labelsize=ts)
+    ax4.tick_params(labelsize=style.tick_font_size)
 
     # --- Save UMAP plot separately ---
     os.makedirs(f'./{log_dir}/tmp_training/umap', exist_ok=True)
@@ -887,20 +885,35 @@ def plot_loss_components(loss_dict, regul_history, log_dir, epoch=None, Niter=No
         style.annotate(ax, info_text, (0.02, 0.98), verticalalignment='top')
 
     # --- curves to plot ---
-    ax.plot(loss_dict['loss'], color='b', linewidth=style.line_width, label='loss', alpha=0.8)
+    # Replace zeros/negatives with NaN so log scale doesn't break
+    def _safe_log_data(data):
+        arr = np.array(data, dtype=float)
+        arr[arr <= 0] = np.nan
+        return arr
+
+    ax.plot(_safe_log_data(loss_dict['loss']), color='b', linewidth=style.line_width,
+            label='loss', alpha=0.8)
     if regul_history:
         for key, color, label in [
-            ('regul_total', 'b', 'total regul'),
+            ('regul_total', 'red', 'total regul'),
             ('edge_weight', 'pink', 'edge weight'),
             ('edge_diff', 'orange', 'edge monotonicity'),
             ('edge_norm', 'brown', 'edge norm'),
             ('continuous', 'cyan', 'continuous'),
         ]:
             data = regul_history.get(key, [])
-            if len(data) > 0:
-                ax.plot(data, color=color, linewidth=1, label=label, alpha=0.8)
+            if len(data) > 0 and any(v > 0 for v in data):
+                ax.plot(_safe_log_data(data), color=color, linewidth=1, label=label, alpha=0.8)
 
     ax.set_yscale('log')
+
+    # Force y-axis to include actual loss data
+    pos_vals = [v for v in loss_dict['loss'] if v > 0]
+    if pos_vals:
+        ymin = min(pos_vals)
+        ymax = max(pos_vals)
+        ax.set_ylim([ymin * 0.5, ymax * 2.0])
+
     style.xlabel(ax, 'iteration')
     style.ylabel(ax, 'loss')
     ax.legend(fontsize=style.tick_font_size - 4, loc='best')
@@ -931,20 +944,21 @@ def plot_residual_field_3d(pos, residual, frame, dimension, log_dir, cmap, sim):
     """
     import os
 
+    style = default_style
     mag = np.sqrt((residual ** 2).sum(axis=-1))  # (N,)
-    mag_norm = mag / (mag.max() + 1e-12)
 
     out_dir = f'./{log_dir}/results/residual'
     os.makedirs(out_dir, exist_ok=True)
 
     if dimension == 3:
-        fig = plt.figure(figsize=(20, 10))
+        fig, (ax1, ax2) = style.figure(ncols=2, width=20, height=10,
+                                        subplot_kw={'projection': None})
+        # Replace left panel with 3D projection
+        ax1.remove()
+        ax1 = fig.add_subplot(1, 2, 1, projection='3d')
 
-        # --- Left: 3D scatter + quiver ---
-        ax1 = fig.add_subplot(121, projection='3d')
         ax1.scatter(pos[:, 0], pos[:, 1], pos[:, 2],
                     s=10, c=mag, cmap='hot', alpha=0.5, edgecolors='none')
-        # Subsample for readable quiver
         n = pos.shape[0]
         step_q = max(1, n // 300)
         idx = np.arange(0, n, step_q)
@@ -955,13 +969,13 @@ def plot_residual_field_3d(pos, residual, frame, dimension, log_dir, cmap, sim):
         ax1.set_xlim([0, 1])
         ax1.set_ylim([0, 1])
         ax1.set_zlim([0, 1])
-        ax1.set_xlabel('X')
-        ax1.set_ylabel('Y')
-        ax1.set_zlabel('Z')
-        ax1.set_title(f'residual field (3D) — frame {frame}')
+        style.xlabel(ax1, 'X')
+        style.ylabel(ax1, 'Y')
+        ax1.set_zlabel('Z', fontsize=style.label_font_size)
+        ax1.set_title(f'residual field (3D) — frame {frame}', fontsize=style.font_size)
 
         # --- Right: Z cross-section ---
-        ax2 = fig.add_subplot(122)
+        style.clean_ax(ax2)
         z_center, z_thickness = 0.5, 0.1
         mask = np.abs(pos[:, 2] - z_center) < z_thickness
         if mask.sum() > 0:
@@ -975,13 +989,14 @@ def plot_residual_field_3d(pos, residual, frame, dimension, log_dir, cmap, sim):
                        width=0.003)
         ax2.set_xlim([0, 1])
         ax2.set_ylim([0, 1])
-        ax2.set_xlabel('X')
-        ax2.set_ylabel('Y')
-        ax2.set_title(f'Z slice ({z_center - z_thickness:.1f} < z < {z_center + z_thickness:.1f})')
+        style.xlabel(ax2, 'X')
+        style.ylabel(ax2, 'Y')
+        ax2.set_title(f'Z slice ({z_center - z_thickness:.1f} < z < {z_center + z_thickness:.1f})',
+                      fontsize=style.font_size)
         ax2.set_aspect('equal')
 
     else:
-        fig, ax = plt.subplots(figsize=(10, 10))
+        fig, ax = style.figure(width=10, height=10)
         ax.scatter(pos[:, 0], pos[:, 1], s=10, c=mag, cmap='hot',
                    alpha=0.5, edgecolors='none')
         n = pos.shape[0]
@@ -992,11 +1007,10 @@ def plot_residual_field_3d(pos, residual, frame, dimension, log_dir, cmap, sim):
                   width=0.003)
         ax.set_xlim([0, 1])
         ax.set_ylim([0, 1])
-        ax.set_xlabel('X')
-        ax.set_ylabel('Y')
-        ax.set_title(f'residual field (2D) — frame {frame}')
+        style.xlabel(ax, 'X')
+        style.ylabel(ax, 'Y')
+        ax.set_title(f'residual field (2D) — frame {frame}', fontsize=style.font_size)
         ax.set_aspect('equal')
 
     plt.tight_layout()
-    fig.savefig(f'{out_dir}/residual_{frame:06d}.tif', dpi=150)
-    plt.close(fig)
+    style.savefig(fig, f'{out_dir}/residual_{frame:06d}.tif')

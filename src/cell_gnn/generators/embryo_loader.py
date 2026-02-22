@@ -22,6 +22,7 @@ import torch
 from tqdm import trange
 
 from cell_gnn.cell_state import CellState, VertexTimeSeries
+from cell_gnn.figure_style import default_style
 from cell_gnn.zarr_io import (
     ZarrSimulationWriterV3, save_edge_index,
     save_vertex_indices, save_vertex_timeseries,
@@ -549,7 +550,7 @@ def _plot_embryo_frame(pos, edge_index, vertex_pos, vertex_indices,
     """
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
-    fig = plt.figure(figsize=(16, 14))
+    fig = plt.figure(figsize=(16, 14), facecolor=default_style.background)
     ax = fig.add_subplot(111, projection='3d')
 
     valid = ~np.isnan(pos[:, 0])
@@ -591,12 +592,12 @@ def _plot_embryo_frame(pos, edge_index, vertex_pos, vertex_indices,
     ax.set_xlim(data_center[0] - half_range, data_center[0] + half_range)
     ax.set_ylim(data_center[1] - half_range, data_center[1] + half_range)
     ax.set_zlim(data_center[2] - half_range, data_center[2] + half_range)
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.set_zlabel('Z')
+    default_style.xlabel(ax, 'X')
+    default_style.ylabel(ax, 'Y')
+    ax.set_zlabel('Z', fontsize=default_style.label_font_size, color=default_style.foreground)
     ax.set_title(f'{embryo_key} frame {t_idx}  '
-                 f'({len(pos_valid)} cells, {len(polygons)} polygons)')
+                 f'({len(pos_valid)} cells, {len(polygons)} polygons)',
+                 fontsize=default_style.font_size, color=default_style.foreground)
 
     num = f"{t_idx:06}"
-    fig.savefig(f"graphs_data/{dataset_name}/Fig/Fig_{run}_{num}.png", dpi=200)
-    plt.close(fig)
+    default_style.savefig(fig, f"graphs_data/{dataset_name}/Fig/Fig_{run}_{num}.png")

@@ -1,17 +1,17 @@
-description: "3D overdamped cell cells with pair forces"
-dataset: "dicty"
-data_folder_name: "cell3d_overdamped_N1000_T20_L2_position_pairforce.npz"
+description: "Mouse salivary gland (SMG) epithelial tissue"
+dataset: "gland"
+data_folder_name: "gland"
 
 simulation:
   dimension: 3
-  n_cells: 1000
+  n_cells: 8000
   n_cell_types: 1
-  n_frames: 10000
-  delta_t: 0.002
-  max_radius: 0.025
+  n_frames: 553
+  delta_t: 5.0
+  max_radius: 0.05
   min_radius: 0
   sigma: 0.005
-  boundary: "periodic"
+  boundary: "no"
   dpos_init: 0
   cell_params: [[1.0, 1.0, 1.0, 1.0]]
   func_params: [["arbitrary", 0, 0]]
@@ -36,11 +36,11 @@ plotting:
 training:
   n_runs: 1
   device: "auto"
-  n_epochs: 2
-  batch_size: 1
+  n_epochs: 20
+  batch_size: 4
   small_init_batch_size: False
-  sparsity: "none"
+  sparsity: "replace_embedding_function"
+  cluster_method: "distance_plot"
   rotation_augmentation: True
-  data_augmentation_loop: 10
-  learning_rate_start: 1.0E-4
-  learning_rate_embedding_start: 1.0E-5
+  data_augmentation_loop: 20
+  fix_cluster_embedding: True

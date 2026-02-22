@@ -27,6 +27,7 @@ class ConnectivityType(StrEnum):
     DISTANCE = "distance"
     VORONOI = "voronoi"
     K_NEAREST = "k_nearest"
+    MESH = "mesh"
 
 class Prediction(StrEnum):
     FIRST_DERIVATIVE = "first_derivative"
