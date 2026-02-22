@@ -116,17 +116,28 @@ class CellGNN(nn.Module):
         pos = state.pos
         d_pos = state.vel / self.vnorm
         if self.rotation_augmentation & self.training:
-            self.phi = torch.randn(1, dtype=torch.float32, requires_grad=False, device=self.device) * np.pi * 2
-            self.rotation_matrix = torch.stack([
-                torch.stack([torch.cos(self.phi), torch.sin(self.phi)]),
-                torch.stack([-torch.sin(self.phi), torch.cos(self.phi)])
-            ])
-            self.rotation_matrix = self.rotation_matrix.permute(*torch.arange(self.rotation_matrix.ndim - 1, -1, -1)).squeeze()
+            if self.dimension == 2:
+                self.phi = torch.randn(1, dtype=torch.float32, requires_grad=False, device=self.device) * np.pi * 2
+                self.rotation_matrix = torch.stack([
+                    torch.stack([torch.cos(self.phi), torch.sin(self.phi)]),
+                    torch.stack([-torch.sin(self.phi), torch.cos(self.phi)])
+                ])
+                self.rotation_matrix = self.rotation_matrix.permute(*torch.arange(self.rotation_matrix.ndim - 1, -1, -1)).squeeze()
+            else:
+                # Random SO(3) rotation via QR decomposition
+                rand_matrix = torch.randn(3, 3, dtype=torch.float32, device=self.device)
+                q, r = torch.linalg.qr(rand_matrix)
+                # Ensure proper rotation (det = +1)
+                q = q * torch.sign(torch.diag(r))
+                if torch.det(q) < 0:
+                    q[:, 0] = -q[:, 0]
+                self.rotation_matrix = q
 
-            d_pos[:, :2] = d_pos[:, :2] @ self.rotation_matrix
+            d = self.dimension
+            d_pos[:, :d] = d_pos[:, :d] @ self.rotation_matrix
 
-            for n in range(derivatives.shape[1]//2):
-                derivatives[:, n*2:n*2+2] = derivatives[:, n*2:n*2+2] @ self.rotation_matrix
+            for n in range(derivatives.shape[1] // d):
+                derivatives[:, n*d:n*d+d] = derivatives[:, n*d:n*d+d] @ self.rotation_matrix
 
         cell_id = state.index.unsqueeze(-1)
         if self.state == 'sequence':
@@ -153,9 +164,8 @@ class CellGNN(nn.Module):
             else:
                 out = self.lin_phi(torch.cat((out, embedding, d_pos), dim=-1))
         if self.rotation_augmentation & self.training:
-            self.rotation_inv_matrix = torch.stack([torch.stack([torch.cos(self.phi), -torch.sin(self.phi)]),torch.stack([torch.sin(self.phi), torch.cos(self.phi)])])
-            self.rotation_inv_matrix = self.rotation_inv_matrix.permute(*torch.arange(self.rotation_inv_matrix.ndim - 1, -1, -1)).squeeze()
-            out[:, :2] = out[:, :2] @ self.rotation_inv_matrix
+            d = self.dimension
+            out[:, :d] = out[:, :d] @ self.rotation_matrix.T
 
         if self.reflection_augmentation & self.training:
             if group in [0, 1]:
@@ -171,7 +181,8 @@ class CellGNN(nn.Module):
         r = torch.sqrt(torch.sum(self.bc_dpos(pos_j - pos_i) ** 2, dim=1)) / self.max_radius
         delta_pos = self.bc_dpos(pos_j - pos_i) / self.max_radius
         if self.rotation_augmentation & self.training:
-            delta_pos[:, :2] = delta_pos[:, :2] @ self.rotation_matrix
+            d = self.dimension
+            delta_pos[:, :d] = delta_pos[:, :d] @ self.rotation_matrix
 
         match self.model:
             case 'arbitrary_ode':
