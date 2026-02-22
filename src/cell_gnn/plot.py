@@ -294,8 +294,9 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
     type_col = 1 + 2 * dimension
 
     # --- Embedding scatter plot ---
+    # All montage panels use style.montage_figure() for consistent sizing/fonts.
     if n_runs == 3:
-        fig, axes = style.figure(ncols=3, width=24)
+        fig, axes = style.montage_figure(ncols=3, width=24)
         ax = axes[0]
         plt.sca(ax)
         embedding = get_embedding(model.a, 1)
@@ -319,12 +320,12 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
         embedding = get_embedding(model.a, 2)
         ax.scatter(embedding[:, 0], embedding[:, 1], s=5, alpha=0)
     elif n_runs > 10:
-        fig, ax = style.figure()
+        fig, ax = style.montage_figure()
         for m in range(1, n_runs):
             embedding = get_embedding(model.a, m)
             ax.scatter(embedding[:, 0], embedding[:, 1], s=20, alpha=1)
     else:
-        fig, ax = style.figure()
+        fig, ax = style.montage_figure()
         if do_tracking:
             embedding = to_numpy(model.a)
             for n in range(n_cell_types):
@@ -339,8 +340,8 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
 
     if n_runs == 3:
         ax = axes[0]
-    style.xlabel(ax, r'$a_0$')
-    style.ylabel(ax, r'$a_1$')
+    style.montage_xlabel(ax, r'$a_0$')
+    style.montage_ylabel(ax, r'$a_1$')
     plt.tight_layout()
     style.savefig(fig, f"./{log_dir}/tmp_training/embedding/{epoch}_{N}.tif")
 
@@ -418,12 +419,10 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
         match model_config.cell_model_name:
 
             case 'arbitrary_ode' | 'arbitrary_field_ode' | 'gravity_ode':
-                fig, ax = style.figure(height=12)
+                fig, ax = style.montage_figure()
                 if axis:
                     ax.xaxis.set_major_locator(plt.MaxNLocator(3))
                     ax.yaxis.set_major_locator(plt.MaxNLocator(3))
-                    plt.xticks(fontsize=style.frame_tick_font_size)
-                    plt.yticks(fontsize=style.frame_tick_font_size)
                     plt.xlim([0, simulation_config.max_radius])
 
                 rr = torch.tensor(np.linspace(0, simulation_config.max_radius, 1000)).to(device)
@@ -453,14 +452,14 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
 
                 if model_config.cell_model_name == 'gravity_ode':
                     plt.xlim([0, 0.02])
-                style.xlabel(ax, r'$r$', fontsize=style.frame_label_font_size)
-                style.ylabel(ax, r'$\psi(r)$', fontsize=style.frame_label_font_size)
+                style.montage_xlabel(ax, r'$r$')
+                style.montage_ylabel(ax, r'$\psi(r)$')
                 plt.tight_layout()
                 style.savefig(fig, f"./{log_dir}/tmp_training/function/MLP1/function_{epoch}_{N}.tif")
 
             case 'boids_ode' | 'boids_field_ode':
                 max_radius_plot = 0.04
-                fig, ax = style.figure(height=12)
+                fig, ax = style.montage_figure()
                 rr = torch.tensor(np.linspace(-max_radius_plot, max_radius_plot, 1000)).to(device)
 
                 # Vectorized MLP evaluation
@@ -493,10 +492,8 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
                 ax.xaxis.set_major_formatter(FormatStrFormatter('%.2f'))
                 fmt = lambda x, pos: '{:.1f}e-5'.format((x) * 1e5, pos)
                 ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(fmt))
-                plt.xticks(fontsize=style.frame_tick_font_size)
-                plt.yticks(fontsize=style.frame_tick_font_size)
-                style.xlabel(ax, r'$r$', fontsize=style.frame_label_font_size)
-                style.ylabel(ax, r'$\psi(r)$', fontsize=style.frame_label_font_size)
+                style.montage_xlabel(ax, r'$r$')
+                style.montage_ylabel(ax, r'$\psi(r)$')
                 plt.tight_layout()
                 style.savefig(fig, f"./{log_dir}/tmp_training/function/MLP1/function_{epoch}_{N}.tif")
 
@@ -802,38 +799,40 @@ def plot_training_summary_panels(fig, log_dir, model, config, n_cells, n_cell_ty
     print(f'accuracy: {np.round(accuracy, 3)}   n_clusters: {n_clusters}')
     logger.info(f'accuracy: {np.round(accuracy, 3)}    n_clusters: {n_clusters}')
 
-    # --- Panel 4: UMAP scatter ---
+    # --- Panel 4: UMAP scatter (drawn directly in montage figure) ---
     ax4 = fig.add_subplot(2, 2, 4)
     style.clean_ax(ax4)
     for n in np.unique(new_labels):
         pos = np.array(np.argwhere(new_labels == n).squeeze().astype(int))
         if pos.size > 0:
             ax4.scatter(proj_embedding[pos, 0], proj_embedding[pos, 1], s=5)
-    style.xlabel(ax4, 'UMAP 0')
-    style.ylabel(ax4, 'UMAP 1')
-    style.annotate(ax4,
-                   f'UMAP of $\\psi(r)$ curves\n'
-                   f'input: {func_list.shape[1]} radial samples per cell\n'
-                   f'n_neighbors={n_neighbors}  min_dist={min_dist}',
-                   (0.02, 0.98), verticalalignment='top',
-                   fontsize=style.annotation_font_size)
-    ax4.tick_params(labelsize=style.tick_font_size)
+    # Use montage-consistent fonts (panels 1-3 are loaded as images with
+    # montage_figure() sizing; panel 4 must match visually).
+    ax4.set_xlabel('UMAP 0', fontsize=style.montage_label_font_size,
+                   color=style.foreground)
+    ax4.set_ylabel('UMAP 1', fontsize=style.montage_label_font_size,
+                   color=style.foreground)
+    ax4.tick_params(labelsize=style.montage_tick_font_size)
+    style.montage_annotate(ax4,
+                           f'UMAP of $\\psi(r)$ curves\n'
+                           f'input: {func_list.shape[1]} radial samples per cell\n'
+                           f'n_neighbors={n_neighbors}  min_dist={min_dist}',
+                           (0.02, 0.98), verticalalignment='top')
 
     # --- Save UMAP plot separately ---
     os.makedirs(f'./{log_dir}/tmp_training/umap', exist_ok=True)
-    fig_umap, ax_umap = style.figure()
+    fig_umap, ax_umap = style.montage_figure()
     for n in np.unique(new_labels):
         pos = np.array(np.argwhere(new_labels == n).squeeze().astype(int))
         if pos.size > 0:
             ax_umap.scatter(proj_embedding[pos, 0], proj_embedding[pos, 1], s=5)
-    style.xlabel(ax_umap, 'UMAP 0')
-    style.ylabel(ax_umap, 'UMAP 1')
-    style.annotate(ax_umap,
-                   f'UMAP of $\\psi(r)$ curves\n'
-                   f'input: {func_list.shape[1]} radial samples per cell\n'
-                   f'n_neighbors={n_neighbors}  min_dist={min_dist}',
-                   (0.02, 0.98), verticalalignment='top',
-                   fontsize=style.annotation_font_size)
+    style.montage_xlabel(ax_umap, 'UMAP 0')
+    style.montage_ylabel(ax_umap, 'UMAP 1')
+    style.montage_annotate(ax_umap,
+                           f'UMAP of $\\psi(r)$ curves\n'
+                           f'input: {func_list.shape[1]} radial samples per cell\n'
+                           f'n_neighbors={n_neighbors}  min_dist={min_dist}',
+                           (0.02, 0.98), verticalalignment='top')
     plt.tight_layout()
     style.savefig(fig_umap, f'./{log_dir}/tmp_training/umap/{epoch}.tif')
 
@@ -870,17 +869,14 @@ def plot_loss_components(loss_dict, regul_history, log_dir, epoch=None, Niter=No
         return
 
     import os
-    from matplotlib.ticker import AutoLocator, ScalarFormatter, LogLocator, LogFormatterSciNotation
+    from matplotlib.ticker import AutoLocator, ScalarFormatter
 
     style = default_style
 
-    # Use plt.subplots directly — style.figure() sets MaxNLocator(3) and
-    # FormatStrFormatter('%.2f') which break log-scale loss plots.
-    fig_loss, ax = plt.subplots(
-        figsize=(style.figure_height * style.default_aspect, style.figure_height),
-        facecolor=style.background,
-    )
-    style.clean_ax(ax)
+    # Use montage_figure for consistent sizing with other montage panels.
+    # Then override locators — montage_figure doesn't set MaxNLocator/
+    # FormatStrFormatter, so log-scale works correctly.
+    fig_loss, ax = style.montage_figure()
 
     # Use proper locators for a loss plot (integer x, log y)
     ax.xaxis.set_major_locator(AutoLocator())
@@ -894,7 +890,7 @@ def plot_loss_components(loss_dict, regul_history, log_dir, epoch=None, Niter=No
             info_text += " | "
         info_text += f"iter/epoch: {Niter}"
     if info_text:
-        style.annotate(ax, info_text, (0.02, 0.98), verticalalignment='top')
+        style.montage_annotate(ax, info_text, (0.02, 0.98), verticalalignment='top')
 
     # --- curves to plot ---
     # Replace zeros/negatives with NaN so log scale doesn't break
@@ -932,9 +928,9 @@ def plot_loss_components(loss_dict, regul_history, log_dir, epoch=None, Niter=No
     if n_points > 1:
         ax.set_xlim([0, n_points - 1])
 
-    style.xlabel(ax, 'iteration')
-    style.ylabel(ax, 'loss')
-    ax.legend(fontsize=style.tick_font_size - 4, loc='best')
+    style.montage_xlabel(ax, 'iteration')
+    style.montage_ylabel(ax, 'loss')
+    ax.legend(fontsize=style.montage_legend_font_size, loc='best')
 
     os.makedirs(f'./{log_dir}/tmp_training', exist_ok=True)
     plt.tight_layout()
