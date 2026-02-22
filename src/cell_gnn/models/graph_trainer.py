@@ -219,7 +219,8 @@ def data_train_cell(config, erase, best_model, device):
         total_loss = 0
         total_loss_regul = 0
 
-        for N in trange(Niter, ncols=100):
+        pbar = trange(Niter, ncols=100)
+        for N in pbar:
 
             if has_field:
                 optimizer_f.zero_grad()
@@ -362,6 +363,7 @@ def data_train_cell(config, erase, best_model, device):
 
             total_loss += loss.item()
             total_loss_regul += regularizer.get_iteration_total()
+            pbar.set_postfix(loss=f'{loss.item() / n_cells:.6f}')
 
             if (N % plot_frequency == 0) or (N == 0):
                 loss_dict['loss'].append(loss.item() / n_cells)
@@ -1165,7 +1167,8 @@ def data_train_cell_field(config, erase, best_model, device):
             logger.info(f'{Niter} iterations per epoch')
             print(f'plot every {plot_frequency} iterations')
 
-        for N in trange(Niter):
+        pbar = trange(Niter)
+        for N in pbar:
 
             phi = torch.randn(1, dtype=torch.float32, requires_grad=False, device=device) * np.pi * 2
             cos_phi = torch.cos(phi)
@@ -1239,6 +1242,7 @@ def data_train_cell_field(config, erase, best_model, device):
                 optimizer_f.step()
             total_loss += loss.item()
             total_loss_regul += regularizer.get_iteration_total()
+            pbar.set_postfix(loss=f'{loss.item() / n_cells:.6f}')
 
             if (N % plot_frequency == 0) or (N == 0):
                 loss_dict['loss'].append(loss.item() / n_cells)
