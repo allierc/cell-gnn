@@ -410,7 +410,8 @@ def data_train_cell(config, erase, best_model, device):
         labels, n_clusters, new_labels, func_list, model_a_, accuracy = \
             plot_training_summary_panels(fig, log_dir, model, config, n_cells, n_cell_types,
                                          index_cells, type_list, ynorm, cmap,
-                                         embedding_cluster, epoch, logger, device)
+                                         embedding_cluster, epoch, logger, device,
+                                         loss_dict=loss_dict, regul_history=regularizer.get_history())
 
         if (replace_with_cluster) & (epoch % sparsity_freq == sparsity_freq - 1) & (
                 epoch < n_epochs - sparsity_freq):
@@ -966,12 +967,65 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
                 plt.tight_layout()
                 fig_style.savefig(fig_b, f"./{log_dir}/tmp_recons/Boundary_{config_file}_{num}.tif")
 
+    # --- One-step residual field ---
+    print('computing one-step residual field ...')
+    from cell_gnn.plot import plot_residual_field_3d
+    from cell_gnn.zarr_io import ZarrArrayWriter
+
+    residual_list = []
+    os.makedirs(f'./{log_dir}/results/residual', exist_ok=True)
+    n_test_frames = min(n_frames - 4, x_ts.n_frames - 4)
+
+    with torch.no_grad():
+        for it in trange(n_test_frames, ncols=100, desc='one-step residual'):
+            x0 = x_ts.frame(it).to_packed().to(device)
+            y_gt = y_raw[it].clone().detach()
+
+            distance = torch.sum(bc_dpos(x0[:, None, pos_start:pos_end] - x0[None, :, pos_start:pos_end]) ** 2, dim=2)
+            adj_t = ((distance < max_radius ** 2) & (distance > min_radius ** 2)).float()
+            edge_index = adj_t.nonzero().t().contiguous()
+
+            dataset = GraphData(x=x0, edge_index=edge_index)
+            test_state = CellState.from_packed(dataset.x, dimension)
+
+            if config.training.shared_embedding:
+                data_id = torch.ones((n_cells, 1), dtype=torch.int, device=device)
+            else:
+                data_id = torch.ones((n_cells, 1), dtype=torch.int, device=device) * run
+
+            pred = model(test_state, dataset.edge_index, data_id=data_id, training=False, has_field=has_field, k=it)
+
+            residual = y_gt[:n_cells] - pred[:n_cells] * ynorm
+            residual_list.append(to_numpy(residual))
+
+            if (it % step == 0) and visualize:
+                pos_np = to_numpy(x0[:n_cells, pos_start:pos_end])
+                res_np = to_numpy(residual)
+                plot_residual_field_3d(pos_np, res_np, it, dimension, log_dir, cmap, sim)
+
+    residual_arr = np.stack(residual_list, axis=0)  # (T, N, dim)
+    np.save(f'./{log_dir}/results/residual_field.npy', residual_arr)
+
+    residual_writer = ZarrArrayWriter(
+        path=f'graphs_data/{dataset_name}/residual_list_{run}',
+        n_cells=n_cells, n_features=dimension)
+    for frame in residual_arr:
+        residual_writer.append(frame)
+    residual_writer.finalize()
+
+    residual_mag = np.sqrt((residual_arr ** 2).sum(axis=-1))
+    logger.info(f'Residual field: mean magnitude = {residual_mag.mean():.6f}, max = {residual_mag.max():.6f}')
+    print(f'Residual field: mean magnitude = {residual_mag.mean():.6f}, max = {residual_mag.max():.6f}')
+    print(f'Saved to graphs_data/{dataset_name}/residual_list_{run}.zarr')
+
     # Write structured results log
     results = {
         'rollout_RMSE_mean': float(np.mean(rmserr_list)) if rmserr_list else 0.0,
         'rollout_RMSE_final': float(rmserr_list[-1]) if rmserr_list else 0.0,
         'rollout_geomloss_mean': float(np.mean(geomloss_list)) if geomloss_list else 0.0,
         'rollout_geomloss_final': float(geomloss_list[-1]) if geomloss_list else 0.0,
+        'residual_mean_magnitude': float(residual_mag.mean()),
+        'residual_max_magnitude': float(residual_mag.max()),
     }
     results_log_path = os.path.join(log_dir, 'results.log')
     with open(results_log_path, 'w') as f:
@@ -1294,7 +1348,8 @@ def data_train_cell_field(config, erase, best_model, device):
         labels, n_clusters, new_labels, func_list, model_a_, accuracy = \
             plot_training_summary_panels(fig, log_dir, model, config, n_cells, n_cell_types,
                                          index_cells, type_list, ynorm, cmap,
-                                         embedding_cluster, epoch, logger, device)
+                                         embedding_cluster, epoch, logger, device,
+                                         loss_dict=loss_dict, regul_history=regularizer.get_history())
 
         if (replace_with_cluster) & (epoch % sparsity_freq == sparsity_freq - 1) & (epoch < n_epochs - sparsity_freq):
 

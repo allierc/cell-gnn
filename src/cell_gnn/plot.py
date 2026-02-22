@@ -683,14 +683,18 @@ def _plot_true_psi(ax, rr, config, n_cell_types, cmap, device):
 
 def plot_training_summary_panels(fig, log_dir, model, config, n_cells, n_cell_types,
                                  index_cells, type_list, ynorm, cmap,
-                                 embedding_cluster, epoch, logger, device):
-    """Assemble epoch summary as a montage of saved plots from tmp_training.
+                                 embedding_cluster, epoch, logger, device,
+                                 loss_dict=None, regul_history=None):
+    """Assemble epoch summary as a 2x2 figure drawn directly with FigureStyle.
 
-    Loads the last saved embedding, MLP1 function, loss.tif, and computes
-    a UMAP clustering panel. Uses a 2x2 subplot layout loaded via imageio.
+    Panels:
+      1. Top-left: embedding scatter.
+      2. Top-right: learned interaction functions (MLP1).
+      3. Bottom-left: training loss (single log-scale panel).
+      4. Bottom-right: UMAP of interaction functions.
 
     Args:
-        fig: matplotlib Figure (expected 2x2 subplot layout).
+        fig: matplotlib Figure (2x2 subplots will be added).
         log_dir: path to the training log directory.
         model: trained GNN model (must have ``model.a`` and ``model.lin_edge``).
         config: CellGNNConfig.
@@ -704,14 +708,14 @@ def plot_training_summary_panels(fig, log_dir, model, config, n_cells, n_cell_ty
         epoch: current epoch number.
         logger: logging.Logger for accuracy reporting.
         device: torch device.
+        loss_dict: dict with key ``'loss'`` — list of per-sample loss values.
+        regul_history: dict from ``LossRegularizer.get_history()``.
 
     Returns:
         (labels, n_clusters, new_labels, func_list, model_a_, accuracy)
         where ``model_a_`` is the embedding with cluster medians applied.
     """
-    import glob
     import os
-    import imageio
     from sklearn.cluster import DBSCAN
     from sklearn.metrics import accuracy_score
     from scipy.optimize import linear_sum_assignment
@@ -720,38 +724,30 @@ def plot_training_summary_panels(fig, log_dir, model, config, n_cells, n_cell_ty
     tc = config.training
     mc = config.graph_model
     sim = config.simulation
+    fs = style.label_font_size
+    ts = style.tick_font_size
 
-    def _load_panel(fig, pos, filepath, nrows=2, ncols=2):
-        """Load an image file into a subplot, or leave blank if missing."""
-        ax = fig.add_subplot(nrows, ncols, pos)
-        if os.path.exists(filepath):
-            img = imageio.imread(filepath)
-            ax.imshow(img)
-        ax.axis('off')
-        return ax
-
-    # --- Find the last saved iteration snapshot ---
-    embedding_files = glob.glob(f"./{log_dir}/tmp_training/embedding/*.tif")
-    if embedding_files:
-        last_file = max(embedding_files, key=os.path.getctime)
-        filename = os.path.basename(last_file)
-        last_epoch_N = filename.replace('.tif', '')  # e.g. "3_1250"
-    else:
-        last_epoch_N = f"{epoch}_0"
-
-    # --- Panel 1: Embedding ---
-    _load_panel(fig, 1, f"./{log_dir}/tmp_training/embedding/{last_epoch_N}.tif")
-
-    # --- Panel 2: MLP1 edge function ---
-    _load_panel(fig, 2, f"./{log_dir}/tmp_training/function/MLP1/function_{last_epoch_N}.tif")
-
-    # --- Panel 3: Loss ---
-    _load_panel(fig, 3, f"./{log_dir}/tmp_training/loss.tif")
-
-    # --- Clustering: UMAP on embedding + DBSCAN ---
+    # --- Panel 1: Embedding scatter ---
+    ax1 = fig.add_subplot(2, 2, 1)
+    style.clean_ax(ax1)
     embedding = get_embedding(model.a, 0)
+    if tc.do_tracking:
+        emb_full = to_numpy(model.a)
+        for n in range(n_cell_types):
+            ax1.scatter(emb_full[index_cells[n], 0], emb_full[index_cells[n], 1],
+                        color=cmap.color(n), s=1)
+    else:
+        for n in range(n_cell_types):
+            ax1.scatter(embedding[index_cells[n], 0], embedding[index_cells[n], 1],
+                        color=cmap.color(n), s=1)
+    style.xlabel(ax1, r'$a_0$')
+    style.ylabel(ax1, r'$a_1$')
+    ax1.tick_params(labelsize=ts)
 
-    # Compute rr for func_list (needed for sparsity)
+    # --- Panel 2: MLP1 interaction function ---
+    ax2 = fig.add_subplot(2, 2, 2)
+    style.clean_ax(ax2)
+
     config_model = mc.cell_model_name
     if 'boids_ode' in config_model:
         max_radius_plot = 0.04
@@ -768,6 +764,46 @@ def plot_training_summary_panels(fig, log_dir, model, config, n_cells, n_cell_ty
         type_list=to_numpy(type_list), cmap=cmap,
         update_type='NA', device=device)
 
+    rr_np = to_numpy(rr)
+    ynorm_np = to_numpy(ynorm)
+    type_arr = to_numpy(type_list).flatten().astype(int)
+
+    _plot_true_psi(ax2, rr, config, n_cell_types, cmap, device)
+
+    subsample = 5 if tc.n_runs <= 5 else 1
+    _plot_curves_fast(ax2, rr_np, to_numpy(func_list), type_arr, cmap,
+                      ynorm=ynorm_np, subsample=subsample, alpha=0.25, linewidth=1)
+
+    if config_model == 'gravity_ode':
+        ax2.set_xlim([0, 0.02])
+    ax2.set_ylim(config.plotting.ylim)
+    style.xlabel(ax2, r'$r$')
+    style.ylabel(ax2, r'$\psi(r)$')
+    ax2.tick_params(labelsize=ts)
+
+    # --- Panel 3: Loss (single log-scale panel) ---
+    ax3 = fig.add_subplot(2, 2, 3)
+    style.clean_ax(ax3)
+
+    if loss_dict and len(loss_dict.get('loss', [])) > 0:
+        ax3.plot(loss_dict['loss'], color='b', linewidth=style.line_width, label='loss', alpha=0.8)
+        if regul_history:
+            for key, color, label in [
+                ('regul_total', 'b', 'total regul'),
+                ('edge_weight', 'pink', 'edge weight'),
+                ('edge_norm', 'brown', 'edge norm'),
+                ('continuous', 'cyan', 'continuous'),
+            ]:
+                data = regul_history.get(key, [])
+                if len(data) > 0:
+                    ax3.plot(data, color=color, linewidth=1, label=label, alpha=0.8)
+        ax3.set_yscale('log')
+        ax3.legend(fontsize=ts - 4, loc='best')
+    style.xlabel(ax3, 'iteration')
+    style.ylabel(ax3, 'loss')
+    ax3.tick_params(labelsize=ts)
+
+    # --- Clustering: UMAP on embedding + DBSCAN ---
     n_neighbors = 100
     min_dist = 0.3
     dbscan_eps = 0.3
@@ -801,19 +837,21 @@ def plot_training_summary_panels(fig, log_dir, model, config, n_cells, n_cell_ty
     logger.info(f'accuracy: {np.round(accuracy, 3)}    n_clusters: {n_clusters}')
 
     # --- Panel 4: UMAP scatter ---
-    ax = fig.add_subplot(2, 2, 4)
+    ax4 = fig.add_subplot(2, 2, 4)
+    style.clean_ax(ax4)
     for n in np.unique(new_labels):
         pos = np.array(np.argwhere(new_labels == n).squeeze().astype(int))
         if pos.size > 0:
-            ax.scatter(proj_embedding[pos, 0], proj_embedding[pos, 1], s=5)
-    ax.set_xlabel('UMAP 0', fontsize=10)
-    ax.set_ylabel('UMAP 1', fontsize=10)
-    ax.text(0.02, 0.98,
-            f'n_neighbors={n_neighbors}  min_dist={min_dist}\n'
-            f'DBSCAN eps={dbscan_eps}\n'
-            f'accuracy: {np.round(accuracy, 3)}  clusters: {n_clusters}',
-            transform=ax.transAxes, fontsize=8, verticalalignment='top',
-            fontfamily='monospace')
+            ax4.scatter(proj_embedding[pos, 0], proj_embedding[pos, 1], s=5)
+    style.xlabel(ax4, 'UMAP 0')
+    style.ylabel(ax4, 'UMAP 1')
+    style.annotate(ax4,
+                   f'UMAP of $\\psi(r)$ curves\n'
+                   f'input: {func_list.shape[1]} radial samples per cell\n'
+                   f'n_neighbors={n_neighbors}  min_dist={min_dist}',
+                   (0.02, 0.98), verticalalignment='top',
+                   fontsize=style.annotation_font_size)
+    ax4.tick_params(labelsize=ts)
 
     # --- Save UMAP plot separately ---
     os.makedirs(f'./{log_dir}/tmp_training/umap', exist_ok=True)
@@ -822,14 +860,14 @@ def plot_training_summary_panels(fig, log_dir, model, config, n_cells, n_cell_ty
         pos = np.array(np.argwhere(new_labels == n).squeeze().astype(int))
         if pos.size > 0:
             ax_umap.scatter(proj_embedding[pos, 0], proj_embedding[pos, 1], s=5)
-    ax_umap.set_xlabel('UMAP 0', fontsize=10)
-    ax_umap.set_ylabel('UMAP 1', fontsize=10)
-    ax_umap.text(0.02, 0.98,
-                 f'n_neighbors={n_neighbors}  min_dist={min_dist}\n'
-                 f'DBSCAN eps={dbscan_eps}\n'
-                 f'accuracy: {np.round(accuracy, 3)}  clusters: {n_clusters}',
-                 transform=ax_umap.transAxes, fontsize=8, verticalalignment='top',
-                 fontfamily='monospace')
+    style.xlabel(ax_umap, 'UMAP 0')
+    style.ylabel(ax_umap, 'UMAP 1')
+    style.annotate(ax_umap,
+                   f'UMAP of $\\psi(r)$ curves\n'
+                   f'input: {func_list.shape[1]} radial samples per cell\n'
+                   f'n_neighbors={n_neighbors}  min_dist={min_dist}',
+                   (0.02, 0.98), verticalalignment='top',
+                   fontsize=style.annotation_font_size)
     plt.tight_layout()
     style.savefig(fig_umap, f'./{log_dir}/tmp_training/umap/{epoch}.tif')
 
@@ -924,3 +962,95 @@ def plot_loss_components(loss_dict, regul_history, log_dir, epoch=None, Niter=No
 
     os.makedirs(f'./{log_dir}/tmp_training', exist_ok=True)
     style.savefig(fig_loss, f'./{log_dir}/tmp_training/loss.tif')
+
+
+# --------------------------------------------------------------------------- #
+#  Residual field visualization
+# --------------------------------------------------------------------------- #
+
+def plot_residual_field_3d(pos, residual, frame, dimension, log_dir, cmap, sim):
+    """Visualize the residual field (y_true - y_pred) as quiver arrows.
+
+    For 3D: left panel is a 3D scatter+quiver, right panel is a Z cross-section.
+    For 2D: single panel with 2D quiver.
+
+    Args:
+        pos: (N, dim) numpy array of cell positions.
+        residual: (N, dim) numpy array of residual vectors.
+        frame: int, frame number.
+        dimension: int, 2 or 3.
+        log_dir: str, output directory.
+        cmap: CustomColorMap instance.
+        sim: simulation config (needs max_radius).
+    """
+    import os
+
+    mag = np.sqrt((residual ** 2).sum(axis=-1))  # (N,)
+    mag_norm = mag / (mag.max() + 1e-12)
+
+    out_dir = f'./{log_dir}/results/residual'
+    os.makedirs(out_dir, exist_ok=True)
+
+    if dimension == 3:
+        fig = plt.figure(figsize=(20, 10))
+
+        # --- Left: 3D scatter + quiver ---
+        ax1 = fig.add_subplot(121, projection='3d')
+        ax1.scatter(pos[:, 0], pos[:, 1], pos[:, 2],
+                    s=10, c=mag, cmap='hot', alpha=0.5, edgecolors='none')
+        # Subsample for readable quiver
+        n = pos.shape[0]
+        step_q = max(1, n // 300)
+        idx = np.arange(0, n, step_q)
+        scale = sim.max_radius * 5
+        ax1.quiver(pos[idx, 0], pos[idx, 1], pos[idx, 2],
+                   residual[idx, 0] * scale, residual[idx, 1] * scale, residual[idx, 2] * scale,
+                   color='blue', alpha=0.6, arrow_length_ratio=0.3, linewidth=0.8)
+        ax1.set_xlim([0, 1])
+        ax1.set_ylim([0, 1])
+        ax1.set_zlim([0, 1])
+        ax1.set_xlabel('X')
+        ax1.set_ylabel('Y')
+        ax1.set_zlabel('Z')
+        ax1.set_title(f'residual field (3D) — frame {frame}')
+
+        # --- Right: Z cross-section ---
+        ax2 = fig.add_subplot(122)
+        z_center, z_thickness = 0.5, 0.1
+        mask = np.abs(pos[:, 2] - z_center) < z_thickness
+        if mask.sum() > 0:
+            pos_s = pos[mask, :2]
+            res_s = residual[mask, :2]
+            mag_s = mag[mask]
+            ax2.scatter(pos_s[:, 0], pos_s[:, 1], s=15, c=mag_s, cmap='hot',
+                        alpha=0.6, edgecolors='none')
+            ax2.quiver(pos_s[:, 0], pos_s[:, 1], res_s[:, 0], res_s[:, 1],
+                       color='blue', alpha=0.6, scale=mag.max() * 10 + 1e-12,
+                       width=0.003)
+        ax2.set_xlim([0, 1])
+        ax2.set_ylim([0, 1])
+        ax2.set_xlabel('X')
+        ax2.set_ylabel('Y')
+        ax2.set_title(f'Z slice ({z_center - z_thickness:.1f} < z < {z_center + z_thickness:.1f})')
+        ax2.set_aspect('equal')
+
+    else:
+        fig, ax = plt.subplots(figsize=(10, 10))
+        ax.scatter(pos[:, 0], pos[:, 1], s=10, c=mag, cmap='hot',
+                   alpha=0.5, edgecolors='none')
+        n = pos.shape[0]
+        step_q = max(1, n // 500)
+        idx = np.arange(0, n, step_q)
+        ax.quiver(pos[idx, 0], pos[idx, 1], residual[idx, 0], residual[idx, 1],
+                  color='blue', alpha=0.6, scale=mag.max() * 10 + 1e-12,
+                  width=0.003)
+        ax.set_xlim([0, 1])
+        ax.set_ylim([0, 1])
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        ax.set_title(f'residual field (2D) — frame {frame}')
+        ax.set_aspect('equal')
+
+    plt.tight_layout()
+    fig.savefig(f'{out_dir}/residual_{frame:06d}.tif', dpi=150)
+    plt.close(fig)
