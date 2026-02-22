@@ -339,8 +339,10 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
             for n in range(n_cell_types):
                 ax.scatter(embedding[index_cells[n], 0], embedding[index_cells[n], 1], color=cmap.color(n), s=1)
 
-    plt.xticks([])
-    plt.yticks([])
+    if n_runs == 3:
+        ax = axes[0]
+    style.xlabel(ax, r'$a_0$')
+    style.ylabel(ax, r'$a_1$')
     plt.tight_layout()
     style.savefig(fig, f"./{log_dir}/tmp_training/embedding/{epoch}_{N}.tif")
 
@@ -425,7 +427,6 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
                     plt.xticks(fontsize=style.frame_tick_font_size)
                     plt.yticks(fontsize=style.frame_tick_font_size)
                     plt.xlim([0, simulation_config.max_radius])
-                    plt.tight_layout()
 
                 rr = torch.tensor(np.linspace(0, simulation_config.max_radius, 1000)).to(device)
 
@@ -454,6 +455,8 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
 
                 if model_config.cell_model_name == 'gravity_ode':
                     plt.xlim([0, 0.02])
+                style.xlabel(ax, r'$r$')
+                style.ylabel(ax, r'$\psi(r)$')
                 plt.tight_layout()
                 style.savefig(fig, f"./{log_dir}/tmp_training/function/MLP1/function_{epoch}_{N}.tif")
 
@@ -494,6 +497,8 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
                 ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(fmt))
                 plt.xticks(fontsize=style.frame_tick_font_size)
                 plt.yticks(fontsize=style.frame_tick_font_size)
+                style.xlabel(ax, r'$r$')
+                style.ylabel(ax, r'$\psi(r)$')
                 plt.tight_layout()
                 style.savefig(fig, f"./{log_dir}/tmp_training/function/MLP1/function_{epoch}_{N}.tif")
 
@@ -685,13 +690,10 @@ def plot_training_summary_panels(fig, log_dir, model, config, n_cells, n_cell_ty
                                  index_cells, type_list, ynorm, cmap,
                                  embedding_cluster, epoch, logger, device,
                                  loss_dict=None, regul_history=None):
-    """Assemble epoch summary as a 2x2 figure drawn directly with FigureStyle.
+    """Assemble epoch summary by loading saved plots and adding a UMAP panel.
 
-    Panels:
-      1. Top-left: embedding scatter.
-      2. Top-right: learned interaction functions (MLP1).
-      3. Bottom-left: training loss (single log-scale panel).
-      4. Bottom-right: UMAP of interaction functions.
+    Panels 1-3 load images from tmp_training (embedding, MLP1, loss).
+    Panel 4 draws UMAP of interaction functions directly.
 
     Args:
         fig: matplotlib Figure (2x2 subplots will be added).
@@ -708,14 +710,16 @@ def plot_training_summary_panels(fig, log_dir, model, config, n_cells, n_cell_ty
         epoch: current epoch number.
         logger: logging.Logger for accuracy reporting.
         device: torch device.
-        loss_dict: dict with key ``'loss'`` — list of per-sample loss values.
-        regul_history: dict from ``LossRegularizer.get_history()``.
+        loss_dict: dict with key ``'loss'`` (unused, kept for API compat).
+        regul_history: dict from ``LossRegularizer.get_history()`` (unused).
 
     Returns:
         (labels, n_clusters, new_labels, func_list, model_a_, accuracy)
         where ``model_a_`` is the embedding with cluster medians applied.
     """
+    import glob
     import os
+    import imageio
     from sklearn.cluster import DBSCAN
     from sklearn.metrics import accuracy_score
     from scipy.optimize import linear_sum_assignment
@@ -724,29 +728,32 @@ def plot_training_summary_panels(fig, log_dir, model, config, n_cells, n_cell_ty
     tc = config.training
     mc = config.graph_model
     sim = config.simulation
-    fs = style.label_font_size
-    ts = style.tick_font_size
 
-    # --- Panel 1: Embedding scatter ---
-    ax1 = fig.add_subplot(2, 2, 1)
-    style.clean_ax(ax1)
-    embedding = get_embedding(model.a, 0)
-    if tc.do_tracking:
-        emb_full = to_numpy(model.a)
-        for n in range(n_cell_types):
-            ax1.scatter(emb_full[index_cells[n], 0], emb_full[index_cells[n], 1],
-                        color=cmap.color(n), s=1)
+    def _load_panel(fig, pos, filepath):
+        """Load an image file into a subplot, or leave blank if missing."""
+        ax = fig.add_subplot(2, 2, pos)
+        if os.path.exists(filepath):
+            img = imageio.imread(filepath)
+            ax.imshow(img)
+        ax.axis('off')
+        return ax
+
+    # --- Find the last saved iteration snapshot ---
+    embedding_files = glob.glob(f"./{log_dir}/tmp_training/embedding/*.tif")
+    if embedding_files:
+        last_file = max(embedding_files, key=os.path.getctime)
+        filename = os.path.basename(last_file)
+        last_epoch_N = filename.replace('.tif', '')
     else:
-        for n in range(n_cell_types):
-            ax1.scatter(embedding[index_cells[n], 0], embedding[index_cells[n], 1],
-                        color=cmap.color(n), s=1)
-    style.xlabel(ax1, r'$a_0$')
-    style.ylabel(ax1, r'$a_1$')
-    ax1.tick_params(labelsize=ts)
+        last_epoch_N = f"{epoch}_0"
 
-    # --- Panel 2: MLP1 interaction function ---
-    ax2 = fig.add_subplot(2, 2, 2)
-    style.clean_ax(ax2)
+    # --- Panels 1-3: load saved images ---
+    _load_panel(fig, 1, f"./{log_dir}/tmp_training/embedding/{last_epoch_N}.tif")
+    _load_panel(fig, 2, f"./{log_dir}/tmp_training/function/MLP1/function_{last_epoch_N}.tif")
+    _load_panel(fig, 3, f"./{log_dir}/tmp_training/loss.tif")
+
+    # --- Compute func_list for UMAP and sparsity ---
+    embedding = get_embedding(model.a, 0)
 
     config_model = mc.cell_model_name
     if 'boids_ode' in config_model:
@@ -763,45 +770,6 @@ def plot_training_summary_panels(fig, log_dir, model, config, n_cells, n_cell_ty
         n_nodes=0, n_cells=n_cells, ynorm=ynorm,
         type_list=to_numpy(type_list), cmap=cmap,
         update_type='NA', device=device)
-
-    rr_np = to_numpy(rr)
-    ynorm_np = to_numpy(ynorm)
-    type_arr = to_numpy(type_list).flatten().astype(int)
-
-    _plot_true_psi(ax2, rr, config, n_cell_types, cmap, device)
-
-    subsample = 5 if tc.n_runs <= 5 else 1
-    _plot_curves_fast(ax2, rr_np, to_numpy(func_list), type_arr, cmap,
-                      ynorm=ynorm_np, subsample=subsample, alpha=0.25, linewidth=1)
-
-    if config_model == 'gravity_ode':
-        ax2.set_xlim([0, 0.02])
-    ax2.set_ylim(config.plotting.ylim)
-    style.xlabel(ax2, r'$r$')
-    style.ylabel(ax2, r'$\psi(r)$')
-    ax2.tick_params(labelsize=ts)
-
-    # --- Panel 3: Loss (single log-scale panel) ---
-    ax3 = fig.add_subplot(2, 2, 3)
-    style.clean_ax(ax3)
-
-    if loss_dict and len(loss_dict.get('loss', [])) > 0:
-        ax3.plot(loss_dict['loss'], color='b', linewidth=style.line_width, label='loss', alpha=0.8)
-        if regul_history:
-            for key, color, label in [
-                ('regul_total', 'b', 'total regul'),
-                ('edge_weight', 'pink', 'edge weight'),
-                ('edge_norm', 'brown', 'edge norm'),
-                ('continuous', 'cyan', 'continuous'),
-            ]:
-                data = regul_history.get(key, [])
-                if len(data) > 0:
-                    ax3.plot(data, color=color, linewidth=1, label=label, alpha=0.8)
-        ax3.set_yscale('log')
-        ax3.legend(fontsize=ts - 4, loc='best')
-    style.xlabel(ax3, 'iteration')
-    style.ylabel(ax3, 'loss')
-    ax3.tick_params(labelsize=ts)
 
     # --- Clustering: UMAP on embedding + DBSCAN ---
     n_neighbors = 100
@@ -889,10 +857,7 @@ def plot_training_summary_panels(fig, log_dir, model, config, n_cells, n_cell_ty
 # --------------------------------------------------------------------------- #
 
 def plot_loss_components(loss_dict, regul_history, log_dir, epoch=None, Niter=None):
-    """Save a 2-panel loss breakdown to ``{log_dir}/tmp_training/loss.tif``.
-
-    Panel 1 (linear scale) and panel 2 (log scale) show prediction loss and
-    regularization component curves over training iterations.
+    """Save a single-panel log-scale loss figure to ``{log_dir}/tmp_training/loss.tif``.
 
     Args:
         loss_dict: dict with key ``'loss'`` — list of per-epoch prediction loss.
@@ -909,8 +874,7 @@ def plot_loss_components(loss_dict, regul_history, log_dir, epoch=None, Niter=No
     import os
 
     style = default_style
-    lw = style.line_width
-    fig_loss, (ax1, ax2) = style.figure(ncols=2, width=2 * style.figure_height * style.default_aspect)
+    fig_loss, ax = style.figure()
 
     info_text = ""
     if epoch is not None:
@@ -920,47 +884,29 @@ def plot_loss_components(loss_dict, regul_history, log_dir, epoch=None, Niter=No
             info_text += " | "
         info_text += f"iter/epoch: {Niter}"
     if info_text:
-        style.annotate(ax1, info_text, (0.02, 0.98), verticalalignment='top')
-
-    legend_fs = 7
+        style.annotate(ax, info_text, (0.02, 0.98), verticalalignment='top')
 
     # --- curves to plot ---
-    curves = [
-        ('loss', loss_dict['loss'], 'b', 1, 'loss'),
-    ]
+    ax.plot(loss_dict['loss'], color='b', linewidth=style.line_width, label='loss', alpha=0.8)
     if regul_history:
-        curves += [
-            ('regul_total', regul_history.get('regul_total', []), 'b', 1, 'total regul'),
-            ('edge_weight', regul_history.get('edge_weight', []), 'pink', 1, 'edge weight'),
-            ('edge_diff', regul_history.get('edge_diff', []), 'orange', 1, 'edge monotonicity'),
-            ('edge_norm', regul_history.get('edge_norm', []), 'brown', 1, 'edge norm'),
-            ('continuous', regul_history.get('continuous', []), 'cyan', 1, 'continuous'),
-        ]
-
-    # Collect all data values for y-axis scaling
-    all_vals = []
-    for _, data, _, _, _ in curves:
-        if len(data) > 0:
-            all_vals.extend([v for v in data if v > 0])
-
-    for ax, yscale in [(ax1, 'linear'), (ax2, 'log')]:
-        for _, data, color, linewidth, label in curves:
+        for key, color, label in [
+            ('regul_total', 'b', 'total regul'),
+            ('edge_weight', 'pink', 'edge weight'),
+            ('edge_diff', 'orange', 'edge monotonicity'),
+            ('edge_norm', 'brown', 'edge norm'),
+            ('continuous', 'cyan', 'continuous'),
+        ]:
+            data = regul_history.get(key, [])
             if len(data) > 0:
-                ax.plot(data, color=color, linewidth=linewidth, label=label, alpha=0.8)
-        ax.set_xlabel('iteration', fontsize=style.label_font_size - 2)
-        ax.set_ylabel('loss', fontsize=style.label_font_size - 2)
-        ax.tick_params(labelsize=style.tick_font_size - 2)
-        ax.set_yscale(yscale)
-        ax.legend(fontsize=legend_fs, loc='best')
+                ax.plot(data, color=color, linewidth=1, label=label, alpha=0.8)
 
-    # Set y-axis limits from actual data range
-    if all_vals:
-        ymin = min(all_vals)
-        ymax = max(all_vals)
-        margin = (ymax - ymin) * 0.05 if ymax > ymin else ymax * 0.1
-        ax1.set_ylim([max(0, ymin - margin), ymax + margin])
+    ax.set_yscale('log')
+    style.xlabel(ax, 'iteration')
+    style.ylabel(ax, 'loss')
+    ax.legend(fontsize=style.tick_font_size - 4, loc='best')
 
     os.makedirs(f'./{log_dir}/tmp_training', exist_ok=True)
+    plt.tight_layout()
     style.savefig(fig_loss, f'./{log_dir}/tmp_training/loss.tif')
 
 
