@@ -405,19 +405,12 @@ def data_train_cell(config, erase, best_model, device):
         logger.info(f'Epoch {epoch + 1}, Learning Rate: {scheduler.get_last_lr()[0]}')
 
         from cell_gnn.figure_style import default_style as fig_style
-        fig, axes = fig_style.figure(ncols=5, width=22, height=5)
-        ax = axes[0]
-        plt.sca(ax)
-        ax.plot(list_loss, color=fig_style.foreground)
-
-        ax.set_xlim([0, n_epochs])
-        fig_style.ylabel(ax, 'Loss')
-        fig_style.xlabel(ax, 'Epochs')
+        fig = plt.figure(figsize=(12, 10))
 
         labels, n_clusters, new_labels, func_list, model_a_, accuracy = \
-            plot_training_summary_panels(axes, model, config, n_cells, n_cell_types,
+            plot_training_summary_panels(fig, log_dir, model, config, n_cells, n_cell_types,
                                          index_cells, type_list, ynorm, cmap,
-                                         embedding_cluster, logger, device)
+                                         embedding_cluster, epoch, logger, device)
 
         if (replace_with_cluster) & (epoch % sparsity_freq == sparsity_freq - 1) & (
                 epoch < n_epochs - sparsity_freq):
@@ -1296,19 +1289,12 @@ def data_train_cell_field(config, erase, best_model, device):
         torch.save(list_loss, os.path.join(log_dir, 'loss.pt'))
 
         from cell_gnn.figure_style import default_style as fig_style
-        fig, axes = fig_style.figure(ncols=5, width=22, height=4)
-
-        ax = axes[0]
-        plt.sca(ax)
-        ax.plot(list_loss, color=fig_style.foreground)
-        ax.set_xlim([0, n_epochs])
-        fig_style.ylabel(ax, 'Loss')
-        fig_style.xlabel(ax, 'Epochs')
+        fig = plt.figure(figsize=(12, 10))
 
         labels, n_clusters, new_labels, func_list, model_a_, accuracy = \
-            plot_training_summary_panels(axes, model, config, n_cells, n_cell_types,
+            plot_training_summary_panels(fig, log_dir, model, config, n_cells, n_cell_types,
                                          index_cells, type_list, ynorm, cmap,
-                                         embedding_cluster, logger, device)
+                                         embedding_cluster, epoch, logger, device)
 
         if (replace_with_cluster) & (epoch % sparsity_freq == sparsity_freq - 1) & (epoch < n_epochs - sparsity_freq):
 

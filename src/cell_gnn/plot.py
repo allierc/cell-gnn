@@ -681,19 +681,17 @@ def _plot_true_psi(ax, rr, config, n_cell_types, cmap, device):
 #  Training summary panels
 # --------------------------------------------------------------------------- #
 
-def plot_training_summary_panels(axes, model, config, n_cells, n_cell_types,
+def plot_training_summary_panels(fig, log_dir, model, config, n_cells, n_cell_types,
                                  index_cells, type_list, ynorm, cmap,
-                                 embedding_cluster, logger, device):
-    """Plot embedding, edge functions, clustering, and sparsified embedding.
+                                 embedding_cluster, epoch, logger, device):
+    """Assemble epoch summary as a montage of saved plots from tmp_training.
 
-    Fills ``axes[1]`` through ``axes[4]`` of the training summary figure
-    (``axes[0]`` is reserved for the loss curve by the caller).
-
-    Similar to flyvis-gnn's ``plot_training_summary_panels``, but computes
-    panels live rather than loading saved images.
+    Loads the last saved embedding, MLP1 function, loss.tif, and computes
+    a UMAP clustering panel. Uses a 2x2 subplot layout loaded via imageio.
 
     Args:
-        axes: array of 5 matplotlib Axes.
+        fig: matplotlib Figure (expected 2x2 subplot layout).
+        log_dir: path to the training log directory.
         model: trained GNN model (must have ``model.a`` and ``model.lin_edge``).
         config: CellGNNConfig.
         n_cells: int.
@@ -703,6 +701,7 @@ def plot_training_summary_panels(axes, model, config, n_cells, n_cell_types,
         ynorm: normalization tensor.
         cmap: CustomColorMap instance.
         embedding_cluster: EmbeddingCluster instance.
+        epoch: current epoch number.
         logger: logging.Logger for accuracy reporting.
         device: torch device.
 
@@ -710,6 +709,9 @@ def plot_training_summary_panels(axes, model, config, n_cells, n_cell_types,
         (labels, n_clusters, new_labels, func_list, model_a_, accuracy)
         where ``model_a_`` is the embedding with cluster medians applied.
     """
+    import glob
+    import os
+    import imageio
     from sklearn.cluster import DBSCAN
     from sklearn.metrics import accuracy_score
     from scipy.optimize import linear_sum_assignment
@@ -718,19 +720,39 @@ def plot_training_summary_panels(axes, model, config, n_cells, n_cell_types,
     tc = config.training
     mc = config.graph_model
     sim = config.simulation
-    config_model = mc.cell_model_name
+
+    def _load_panel(fig, pos, filepath, nrows=2, ncols=2):
+        """Load an image file into a subplot, or leave blank if missing."""
+        ax = fig.add_subplot(nrows, ncols, pos)
+        if os.path.exists(filepath):
+            img = imageio.imread(filepath)
+            ax.imshow(img)
+        ax.axis('off')
+        return ax
+
+    # --- Find the last saved iteration snapshot ---
+    embedding_files = glob.glob(f"./{log_dir}/tmp_training/embedding/*.tif")
+    if embedding_files:
+        last_file = max(embedding_files, key=os.path.getctime)
+        filename = os.path.basename(last_file)
+        last_epoch_N = filename.replace('.tif', '')  # e.g. "3_1250"
+    else:
+        last_epoch_N = f"{epoch}_0"
 
     # --- Panel 1: Embedding ---
-    ax = axes[1]
-    plt.sca(ax)
-    embedding = get_embedding(model.a, 0)
-    for n in range(n_cell_types):
-        ax.scatter(embedding[index_cells[n], 0],
-                   embedding[index_cells[n], 1], color=cmap.color(n), s=0.1)
-    style.xlabel(ax, 'ai0')
-    style.ylabel(ax, 'ai1')
+    _load_panel(fig, 1, f"./{log_dir}/tmp_training/embedding/{last_epoch_N}.tif")
 
-    # --- Compute rr matching the model type ---
+    # --- Panel 2: MLP1 edge function ---
+    _load_panel(fig, 2, f"./{log_dir}/tmp_training/function/MLP1/function_{last_epoch_N}.tif")
+
+    # --- Panel 3: Loss ---
+    _load_panel(fig, 3, f"./{log_dir}/tmp_training/loss.tif")
+
+    # --- Clustering: UMAP on embedding + DBSCAN ---
+    embedding = get_embedding(model.a, 0)
+
+    # Compute rr for func_list (needed for sparsity)
+    config_model = mc.cell_model_name
     if 'boids_ode' in config_model:
         max_radius_plot = 0.04
         rr = torch.tensor(np.linspace(-max_radius_plot, max_radius_plot, 1000)).to(device)
@@ -739,11 +761,6 @@ def plot_training_summary_panels(axes, model, config, n_cells, n_cell_types,
     else:
         rr = torch.tensor(np.linspace(0, sim.max_radius, 1000)).to(device)
 
-    # --- Panel 2: Edge functions (true + learned) ---
-    ax = axes[2]
-    plt.sca(ax)
-
-    # Get learned func_list (skip UMAP of func_list — clustering uses embedding)
     func_list, _ = analyze_edge_function(
         rr=rr, vizualize=False, config=config,
         model_MLP=model.lin_edge, model=model,
@@ -751,33 +768,20 @@ def plot_training_summary_panels(axes, model, config, n_cells, n_cell_types,
         type_list=to_numpy(type_list), cmap=cmap,
         update_type='NA', device=device)
 
-    # Plot true psi curves (thick, behind learned)
-    _plot_true_psi(ax, rr, config, n_cell_types, cmap, device)
+    n_neighbors = 100
+    min_dist = 0.3
+    dbscan_eps = 0.3
 
-    # Plot learned curves (thin, semi-transparent)
-    subsample = max(1, n_cells // 200) if n_cells > 200 else 1
-    type_np = to_numpy(type_list).flatten().astype(int)
-    _plot_curves_fast(
-        ax, to_numpy(rr), to_numpy(func_list),
-        type_np, cmap, ynorm=to_numpy(ynorm),
-        subsample=subsample, alpha=0.25, linewidth=1)
-
-    if config_model == 'gravity_ode':
-        ax.set_xlim([1E-3, 0.02])
-    ax.set_ylim(config.plotting.ylim)
-
-    # --- Clustering: UMAP on embedding + DBSCAN ---
     print('UMAP on embedding ...')
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
-        trans = umap.UMAP(n_neighbors=100, min_dist=0.3, n_components=2,
+        trans = umap.UMAP(n_neighbors=n_neighbors, min_dist=min_dist, n_components=2,
                           random_state=tc.seed).fit(embedding)
         proj_embedding = trans.transform(embedding)
 
-    db = DBSCAN(eps=0.3, min_samples=5)
+    db = DBSCAN(eps=dbscan_eps, min_samples=5)
     labels = db.fit_predict(proj_embedding)
     n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
-    # Assign noise to its own cluster
     if -1 in labels:
         labels[labels == -1] = n_clusters
         n_clusters += 1
@@ -796,21 +800,40 @@ def plot_training_summary_panels(axes, model, config, n_cells, n_cell_types,
     print(f'accuracy: {np.round(accuracy, 3)}   n_clusters: {n_clusters}')
     logger.info(f'accuracy: {np.round(accuracy, 3)}    n_clusters: {n_clusters}')
 
-    # --- Panel 3: Clustering scatter ---
-    ax = axes[3]
-    plt.sca(ax)
+    # --- Panel 4: UMAP scatter ---
+    ax = fig.add_subplot(2, 2, 4)
     for n in np.unique(new_labels):
         pos = np.array(np.argwhere(new_labels == n).squeeze().astype(int))
         if pos.size > 0:
             ax.scatter(proj_embedding[pos, 0], proj_embedding[pos, 1], s=5)
-    style.xlabel(ax, 'UMAP 0')
-    style.ylabel(ax, 'UMAP 1')
-    style.annotate(ax, f'accuracy: {np.round(accuracy, 3)},  {n_clusters} clusters',
-                   (0, 1.1), ha='left', va='top')
+    ax.set_xlabel('UMAP 0', fontsize=10)
+    ax.set_ylabel('UMAP 1', fontsize=10)
+    ax.text(0.02, 0.98,
+            f'n_neighbors={n_neighbors}  min_dist={min_dist}\n'
+            f'DBSCAN eps={dbscan_eps}\n'
+            f'accuracy: {np.round(accuracy, 3)}  clusters: {n_clusters}',
+            transform=ax.transAxes, fontsize=8, verticalalignment='top',
+            fontfamily='monospace')
 
-    # --- Panel 4: Sparsified embedding ---
-    ax = axes[4]
-    plt.sca(ax)
+    # --- Save UMAP plot separately ---
+    os.makedirs(f'./{log_dir}/tmp_training/umap', exist_ok=True)
+    fig_umap, ax_umap = style.figure()
+    for n in np.unique(new_labels):
+        pos = np.array(np.argwhere(new_labels == n).squeeze().astype(int))
+        if pos.size > 0:
+            ax_umap.scatter(proj_embedding[pos, 0], proj_embedding[pos, 1], s=5)
+    ax_umap.set_xlabel('UMAP 0', fontsize=10)
+    ax_umap.set_ylabel('UMAP 1', fontsize=10)
+    ax_umap.text(0.02, 0.98,
+                 f'n_neighbors={n_neighbors}  min_dist={min_dist}\n'
+                 f'DBSCAN eps={dbscan_eps}\n'
+                 f'accuracy: {np.round(accuracy, 3)}  clusters: {n_clusters}',
+                 transform=ax_umap.transAxes, fontsize=8, verticalalignment='top',
+                 fontfamily='monospace')
+    plt.tight_layout()
+    style.savefig(fig_umap, f'./{log_dir}/tmp_training/umap/{epoch}.tif')
+
+    # --- Compute sparsified embedding for return ---
     model_a_ = model.a[0].clone().detach()
     for n in range(n_clusters):
         pos = np.argwhere(labels == n).squeeze().astype(int)
@@ -818,14 +841,7 @@ def plot_training_summary_panels(axes, model, config, n_cells, n_cell_types,
         if pos.size > 0:
             median_center = model_a_[pos, :]
             median_center = torch.median(median_center, dim=0).values
-            ax.scatter(to_numpy(model_a_[pos, 0]), to_numpy(model_a_[pos, 1]),
-                       s=1, c='r', alpha=0.25)
             model_a_[pos, :] = median_center
-            ax.scatter(to_numpy(model_a_[pos, 0]), to_numpy(model_a_[pos, 1]),
-                       s=10, c=style.foreground)
-    style.xlabel(ax, 'ai0')
-    style.ylabel(ax, 'ai1')
-    ax.tick_params(labelsize=style.annotation_font_size)
 
     return labels, n_clusters, new_labels, func_list, model_a_, accuracy
 
@@ -883,6 +899,12 @@ def plot_loss_components(loss_dict, regul_history, log_dir, epoch=None, Niter=No
             ('continuous', regul_history.get('continuous', []), 'cyan', 1, 'continuous'),
         ]
 
+    # Collect all data values for y-axis scaling
+    all_vals = []
+    for _, data, _, _, _ in curves:
+        if len(data) > 0:
+            all_vals.extend([v for v in data if v > 0])
+
     for ax, yscale in [(ax1, 'linear'), (ax2, 'log')]:
         for _, data, color, linewidth, label in curves:
             if len(data) > 0:
@@ -892,6 +914,13 @@ def plot_loss_components(loss_dict, regul_history, log_dir, epoch=None, Niter=No
         ax.tick_params(labelsize=style.tick_font_size - 2)
         ax.set_yscale(yscale)
         ax.legend(fontsize=legend_fs, loc='best')
+
+    # Set y-axis limits from actual data range
+    if all_vals:
+        ymin = min(all_vals)
+        ymax = max(all_vals)
+        margin = (ymax - ymin) * 0.05 if ymax > ymin else ymax * 0.1
+        ax1.set_ylim([max(0, ymin - margin), ymax + margin])
 
     os.makedirs(f'./{log_dir}/tmp_training', exist_ok=True)
     style.savefig(fig_loss, f'./{log_dir}/tmp_training/loss.tif')
