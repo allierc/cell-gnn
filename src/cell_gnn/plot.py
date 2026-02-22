@@ -647,9 +647,15 @@ def _plot_true_psi(ax, rr, config, n_cell_types, cmap, device):
     """
     from cell_gnn.generators.utils import choose_model
 
-    true_model, _, _ = choose_model(config, device=device)
+    try:
+        true_model, _, _ = choose_model(config, device=device)
+    except Exception:
+        return
     config_model = config.graph_model.cell_model_name
     p = true_model.p
+    # Ensure p is 2D: (n_cell_types, n_params)
+    if p.dim() == 1:
+        p = p.unsqueeze(0)
 
     rr_np = to_numpy(rr)
 
