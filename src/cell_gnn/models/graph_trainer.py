@@ -362,9 +362,14 @@ def data_train_cell(config, erase, best_model, device):
 
             total_loss += loss.item()
             total_loss_regul += regularizer.get_iteration_total()
+
+            if (N % plot_frequency == 0) or (N == 0):
+                loss_dict['loss'].append(loss.item() / n_cells)
+
             regularizer.finalize_iteration()
 
             if ((epoch < 30) & (N % plot_frequency == 0)) | (N == 0):
+                plot_loss_components(loss_dict, regularizer.get_history(), log_dir, epoch=epoch, Niter=Niter)
                 plot_training(config=config, pred=pred, gt=y_batch, log_dir=log_dir,
                               epoch=epoch, N=N, x=x_plot, model=model, n_nodes=0, n_node_types=0, index_nodes=0,
                               dataset_num=1,
@@ -388,7 +393,6 @@ def data_train_cell(config, erase, best_model, device):
         print("Epoch {}. Loss: {:.6f}  Regul: {:.6f}".format(epoch, total_loss / n_cells, total_loss_regul / n_cells))
         logger.info("Epoch {}. Loss: {:.6f}  Regul: {:.6f}".format(epoch, total_loss / n_cells, total_loss_regul / n_cells))
         list_loss.append(total_loss / n_cells)
-        loss_dict['loss'].append(total_loss / n_cells)
         torch.save(list_loss, os.path.join(log_dir, 'loss.pt'))
 
         scheduler.step()
@@ -472,7 +476,6 @@ def data_train_cell(config, erase, best_model, device):
 
         plt.tight_layout()
         fig_style.savefig(fig, f"./{log_dir}/tmp_training/Fig_{epoch}.tif")
-        plot_loss_components(loss_dict, regularizer.get_history(), log_dir, epoch=epoch, Niter=Niter)
 
 
 def data_test(config=None, config_file=None, visualize=False, style='color frame', verbose=True, best_model=20,
@@ -1235,10 +1238,15 @@ def data_train_cell_field(config, erase, best_model, device):
                 optimizer_f.step()
             total_loss += loss.item()
             total_loss_regul += regularizer.get_iteration_total()
+
+            if (N % plot_frequency == 0) or (N == 0):
+                loss_dict['loss'].append(loss.item() / n_cells)
+
             regularizer.finalize_iteration()
 
             visualize_embedding = True
             if visualize_embedding & (((epoch < 30) & (N % plot_frequency == 0)) | (N == 0)):
+                plot_loss_components(loss_dict, regularizer.get_history(), log_dir, epoch=epoch, Niter=Niter)
                 plot_training_cell_field(config=config, has_siren=has_siren, has_siren_time=has_siren_time,
                                              model_f=model_f, n_frames=n_frames,
                                              model_name=mc.cell_model_name, log_dir=log_dir,
@@ -1272,7 +1280,6 @@ def data_train_cell_field(config, erase, best_model, device):
                         'optimizer_state_dict': optimizer_f.state_dict()},
                        os.path.join(log_dir, 'models', f'best_model_f_with_{n_runs - 1}_graphs_{epoch}.pt'))
         list_loss.append(total_loss / n_cells)
-        loss_dict['loss'].append(total_loss / n_cells)
         torch.save(list_loss, os.path.join(log_dir, 'loss.pt'))
 
         from cell_gnn.figure_style import default_style as fig_style
@@ -1351,4 +1358,3 @@ def data_train_cell_field(config, erase, best_model, device):
 
         plt.tight_layout()
         fig_style.savefig(fig, f"./{log_dir}/tmp_training/Fig_{epoch}.tif")
-        plot_loss_components(loss_dict, regularizer.get_history(), log_dir, epoch=epoch, Niter=Niter)

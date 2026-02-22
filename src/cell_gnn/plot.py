@@ -878,7 +878,7 @@ def plot_loss_components(loss_dict, regul_history, log_dir, epoch=None, Niter=No
         for _, data, color, linewidth, label in curves:
             if len(data) > 0:
                 ax.plot(data, color=color, linewidth=linewidth, label=label, alpha=0.8)
-        ax.set_xlabel('epoch', fontsize=style.label_font_size - 2)
+        ax.set_xlabel('iteration', fontsize=style.label_font_size - 2)
         ax.set_ylabel('loss', fontsize=style.label_font_size - 2)
         ax.tick_params(labelsize=style.tick_font_size - 2)
         ax.set_yscale(yscale)
