@@ -870,9 +870,21 @@ def plot_loss_components(loss_dict, regul_history, log_dir, epoch=None, Niter=No
         return
 
     import os
+    from matplotlib.ticker import AutoLocator, ScalarFormatter, LogLocator, LogFormatterSciNotation
 
     style = default_style
-    fig_loss, ax = style.figure()
+
+    # Use plt.subplots directly — style.figure() sets MaxNLocator(3) and
+    # FormatStrFormatter('%.2f') which break log-scale loss plots.
+    fig_loss, ax = plt.subplots(
+        figsize=(style.figure_height * style.default_aspect, style.figure_height),
+        facecolor=style.background,
+    )
+    style.clean_ax(ax)
+
+    # Use proper locators for a loss plot (integer x, log y)
+    ax.xaxis.set_major_locator(AutoLocator())
+    ax.xaxis.set_major_formatter(ScalarFormatter())
 
     info_text = ""
     if epoch is not None:
@@ -891,7 +903,8 @@ def plot_loss_components(loss_dict, regul_history, log_dir, epoch=None, Niter=No
         arr[arr <= 0] = np.nan
         return arr
 
-    ax.plot(_safe_log_data(loss_dict['loss']), color='b', linewidth=style.line_width,
+    loss_data = _safe_log_data(loss_dict['loss'])
+    ax.plot(loss_data, color='b', linewidth=style.line_width,
             label='loss', alpha=0.8)
     if regul_history:
         for key, color, label in [
@@ -913,6 +926,11 @@ def plot_loss_components(loss_dict, regul_history, log_dir, epoch=None, Niter=No
         ymin = min(pos_vals)
         ymax = max(pos_vals)
         ax.set_ylim([ymin * 0.5, ymax * 2.0])
+
+    # Ensure x-axis shows full data range
+    n_points = len(loss_dict['loss'])
+    if n_points > 1:
+        ax.set_xlim([0, n_points - 1])
 
     style.xlabel(ax, 'iteration')
     style.ylabel(ax, 'loss')
