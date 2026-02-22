@@ -455,8 +455,8 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
 
                 if model_config.cell_model_name == 'gravity_ode':
                     plt.xlim([0, 0.02])
-                style.xlabel(ax, r'$r$')
-                style.ylabel(ax, r'$\psi(r)$')
+                style.xlabel(ax, r'$r$', fontsize=style.frame_label_font_size)
+                style.ylabel(ax, r'$\psi(r)$', fontsize=style.frame_label_font_size)
                 plt.tight_layout()
                 style.savefig(fig, f"./{log_dir}/tmp_training/function/MLP1/function_{epoch}_{N}.tif")
 
@@ -497,8 +497,8 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
                 ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(fmt))
                 plt.xticks(fontsize=style.frame_tick_font_size)
                 plt.yticks(fontsize=style.frame_tick_font_size)
-                style.xlabel(ax, r'$r$')
-                style.ylabel(ax, r'$\psi(r)$')
+                style.xlabel(ax, r'$r$', fontsize=style.frame_label_font_size)
+                style.ylabel(ax, r'$\psi(r)$', fontsize=style.frame_label_font_size)
                 plt.tight_layout()
                 style.savefig(fig, f"./{log_dir}/tmp_training/function/MLP1/function_{epoch}_{N}.tif")
 

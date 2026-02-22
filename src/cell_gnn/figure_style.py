@@ -42,6 +42,7 @@ class FigureStyle:
     # --- large frame fonts (cell/field visualization) ------------------
     frame_title_font_size: float = 48.0
     frame_tick_font_size: float = 32.0
+    frame_label_font_size: float = 32.0
 
     # --- geometry ----------------------------------------------------------
     figure_height: float = 8.0          # inches — cell-gnn uses large square figs
