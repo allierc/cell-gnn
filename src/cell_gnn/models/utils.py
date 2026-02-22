@@ -125,3 +125,134 @@ def set_trainable_parameters(model=[], lr_embedding=[], lr=[], lr_update=[], lr_
                 optimizer.add_param_group({'params': parameter, 'lr': lr})
 
     return optimizer, n_total_params
+
+
+class LossRegularizer:
+    """Handles regularization terms, history tracking, and per-component loss recording.
+
+    Adapted from flyvis-gnn's LossRegularizer for cell-gnn models that have
+    ``model.a`` (embedding) and ``model.lin_edge`` (edge MLP).
+
+    Components tracked: edge_weight, edge_diff, edge_norm, continuous.
+    """
+
+    COMPONENTS = ['edge_weight', 'edge_diff', 'edge_norm', 'continuous']
+
+    def __init__(self, train_config, model_config, sim_config, n_cells, plot_frequency):
+        self.tc = train_config
+        self.mc = model_config
+        self.sim = sim_config
+        self.n_cells = n_cells
+        self.plot_frequency = plot_frequency
+        self.epoch = 0
+        self.iter_count = 0
+        self._iter_total = 0.0
+        self._iter_tracker = {}
+        self._history = {comp: [] for comp in self.COMPONENTS}
+        self._history['regul_total'] = []
+
+    def set_epoch(self, epoch):
+        self.epoch = epoch
+        self.iter_count = 0
+
+    def reset_iteration(self):
+        self.iter_count += 1
+        self._iter_total = 0.0
+        self._iter_tracker = {comp: 0.0 for comp in self.COMPONENTS}
+
+    def _add(self, name, term):
+        if term is None:
+            return
+        val = term.item() if hasattr(term, 'item') else float(term)
+        self._iter_total += val
+        if name in self._iter_tracker:
+            self._iter_tracker[name] += val
+
+    def compute(self, model, device):
+        """Compute all regularization terms.
+
+        Returns:
+            Total regularization loss tensor.
+        """
+        tc = self.tc
+        mc = self.mc
+        sim = self.sim
+        total_regul = torch.tensor(0.0, device=device)
+
+        # --- edge_weight: L1 on lin_edge parameters ---
+        if tc.coeff_edge_weight > 0:
+            for param in model.lin_edge.parameters():
+                regul_term = param.norm(1) * tc.coeff_edge_weight
+                total_regul = total_regul + regul_term
+                self._add('edge_weight', regul_term)
+
+        # --- edge_diff: monotonicity constraint on edge function ---
+        if tc.coeff_edge_diff > 0:
+            n_sample = max(1, self.n_cells // 100)
+            rr = torch.linspace(0, sim.max_radius, 1000, dtype=torch.float32, device=device)
+            dr = sim.max_radius / 200
+            from cell_gnn.plot import build_edge_features
+            for n in np.random.permutation(self.n_cells)[:n_sample]:
+                embedding_ = model.a[0, n, :] * torch.ones((1000, mc.embedding_dim), device=device)
+                feat0 = build_edge_features(rr=rr, embedding=embedding_,
+                                            model_name=mc.cell_model_name,
+                                            max_radius=sim.max_radius)
+                feat1 = build_edge_features(rr=rr + dr, embedding=embedding_,
+                                            model_name=mc.cell_model_name,
+                                            max_radius=sim.max_radius)
+                msg0 = model.lin_edge(feat0)
+                msg1 = model.lin_edge(feat1)
+                regul_term = torch.relu(msg0 - msg1).norm(2) * tc.coeff_edge_diff
+                total_regul = total_regul + regul_term
+                self._add('edge_diff', regul_term)
+
+        # --- edge_norm: edge function at max_radius should be near zero ---
+        if tc.coeff_edge_norm > 0:
+            n_sample = max(1, self.n_cells // 100)
+            rr_max = torch.tensor([sim.max_radius], dtype=torch.float32, device=device)
+            from cell_gnn.plot import build_edge_features
+            for n in np.random.permutation(self.n_cells)[:n_sample]:
+                embedding_ = model.a[0, n, :].unsqueeze(0)
+                feat = build_edge_features(rr=rr_max, embedding=embedding_,
+                                           model_name=mc.cell_model_name,
+                                           max_radius=sim.max_radius)
+                msg_norm = model.lin_edge(feat)
+                regul_term = msg_norm.norm(2) * tc.coeff_edge_norm
+                total_regul = total_regul + regul_term
+                self._add('edge_norm', regul_term)
+
+        # --- continuous: edge function gradient smoothness ---
+        if (tc.coeff_continuous > 0) and (self.epoch > 0):
+            n_sample = max(1, self.n_cells // 100)
+            rr = torch.linspace(0, sim.max_radius, 1000, dtype=torch.float32, device=device)
+            dr = sim.max_radius / 200
+            from cell_gnn.plot import build_edge_features
+            for n in np.random.permutation(self.n_cells)[:n_sample]:
+                embedding_ = model.a[0, n, :] * torch.ones((1000, mc.embedding_dim), device=device)
+                feat1 = build_edge_features(rr=rr + dr, embedding=embedding_,
+                                            model_name=mc.cell_model_name,
+                                            max_radius=sim.max_radius)
+                func1 = model.lin_edge(feat1)
+                feat0 = build_edge_features(rr=rr, embedding=embedding_,
+                                            model_name=mc.cell_model_name,
+                                            max_radius=sim.max_radius)
+                func0 = model.lin_edge(feat0)
+                grad = func1 - func0
+                regul_term = tc.coeff_continuous * grad.norm(2)
+                total_regul = total_regul + regul_term
+                self._add('continuous', regul_term)
+
+        return total_regul
+
+    def finalize_iteration(self):
+        if (self.iter_count % self.plot_frequency == 0) or (self.iter_count == 1):
+            n = max(self.n_cells, 1)
+            self._history['regul_total'].append(self._iter_total / n)
+            for comp in self.COMPONENTS:
+                self._history[comp].append(self._iter_tracker.get(comp, 0) / n)
+
+    def get_iteration_total(self):
+        return self._iter_total
+
+    def get_history(self):
+        return self._history

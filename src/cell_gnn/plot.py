@@ -819,3 +819,70 @@ def plot_training_summary_panels(axes, model, config, n_cells, n_cell_types,
     ax.tick_params(labelsize=style.annotation_font_size)
 
     return labels, n_clusters, new_labels, func_list, model_a_, accuracy
+
+
+# --------------------------------------------------------------------------- #
+#  Loss component figure (loss.tif)
+# --------------------------------------------------------------------------- #
+
+def plot_loss_components(loss_dict, regul_history, log_dir, epoch=None, Niter=None):
+    """Save a 2-panel loss breakdown to ``{log_dir}/tmp_training/loss.tif``.
+
+    Panel 1 (linear scale) and panel 2 (log scale) show prediction loss and
+    regularization component curves over training iterations.
+
+    Args:
+        loss_dict: dict with key ``'loss'`` — list of per-epoch prediction loss.
+        regul_history: dict from ``LossRegularizer.get_history()`` with keys
+            ``'regul_total'``, ``'edge_weight'``, ``'edge_diff'``,
+            ``'edge_norm'``, ``'continuous'``.
+        log_dir: directory to save the figure.
+        epoch: current epoch (for annotation).
+        Niter: iterations per epoch (for annotation).
+    """
+    if len(loss_dict['loss']) == 0:
+        return
+
+    import os
+
+    style = default_style
+    lw = style.line_width
+    fig_loss, (ax1, ax2) = style.figure(ncols=2, width=2 * style.figure_height * style.default_aspect)
+
+    info_text = ""
+    if epoch is not None:
+        info_text += f"epoch: {epoch}"
+    if Niter is not None:
+        if info_text:
+            info_text += " | "
+        info_text += f"iter/epoch: {Niter}"
+    if info_text:
+        style.annotate(ax1, info_text, (0.02, 0.98), verticalalignment='top')
+
+    legend_fs = 7
+
+    # --- curves to plot ---
+    curves = [
+        ('loss', loss_dict['loss'], 'b', lw * 2, 'loss'),
+    ]
+    if regul_history:
+        curves += [
+            ('regul_total', regul_history.get('regul_total', []), 'b', lw, 'total regul'),
+            ('edge_weight', regul_history.get('edge_weight', []), 'pink', lw, 'edge weight'),
+            ('edge_diff', regul_history.get('edge_diff', []), 'orange', lw, 'edge monotonicity'),
+            ('edge_norm', regul_history.get('edge_norm', []), 'brown', lw, 'edge norm'),
+            ('continuous', regul_history.get('continuous', []), 'cyan', lw, 'continuous'),
+        ]
+
+    for ax, yscale in [(ax1, 'linear'), (ax2, 'log')]:
+        for _, data, color, linewidth, label in curves:
+            if len(data) > 0:
+                ax.plot(data, color=color, linewidth=linewidth, label=label, alpha=0.8)
+        ax.set_xlabel('epoch', fontsize=style.label_font_size - 2)
+        ax.set_ylabel('loss', fontsize=style.label_font_size - 2)
+        ax.tick_params(labelsize=style.tick_font_size - 2)
+        ax.set_yscale(yscale)
+        ax.legend(fontsize=legend_fs, loc='best')
+
+    os.makedirs(f'./{log_dir}/tmp_training', exist_ok=True)
+    style.savefig(fig_loss, f'./{log_dir}/tmp_training/loss.tif')

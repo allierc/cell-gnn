@@ -15,12 +15,13 @@ import torch.optim as optim
 import random
 
 from cell_gnn.models.utils import *
+from cell_gnn.models.utils import LossRegularizer
 from cell_gnn.utils import *
 from cell_gnn.models.Siren_Network import *
 from cell_gnn.plot import (
     plot_training, plot_training_cell_field,
     get_embedding, build_edge_features, batched_sparsity_mlp_eval,
-    plot_training_summary_panels,
+    plot_training_summary_panels, plot_loss_components,
 )
 from cell_gnn.sparsify import EmbeddingCluster
 from cell_gnn.generators.utils import choose_model
@@ -76,7 +77,6 @@ def data_train_cell(config, erase, best_model, device):
     time_step = tc.time_step
     data_augmentation_loop = tc.data_augmentation_loop
     recursive_loop = tc.recursive_loop
-    coeff_continuous = tc.coeff_continuous
     batch_ratio = tc.batch_ratio
     sparsity_freq = tc.sparsity_freq
     dataset_name = config.dataset
@@ -189,6 +189,8 @@ def data_train_cell(config, erase, best_model, device):
     check_and_clear_memory(device=device, iteration_number=0, every_n_iterations=1, memory_percentage_threshold=0.6)
 
     list_loss = []
+    loss_dict = {'loss': []}
+    regularizer = LossRegularizer(tc, mc, sim, n_cells, plot_frequency=1)
 
     time.sleep(1)
     for epoch in range(start_epoch, n_epochs):
@@ -210,14 +212,20 @@ def data_train_cell(config, erase, best_model, device):
             logger.info(f'{Niter} iterations per epoch')
             print(f'plot every {plot_frequency} iterations')
 
+        regularizer.set_epoch(epoch)
+        regularizer.plot_frequency = max(1, plot_frequency)
+
         time.sleep(1)
         total_loss = 0
+        total_loss_regul = 0
 
         for N in trange(Niter, ncols=100):
 
             if has_field:
                 optimizer_f.zero_grad()
 
+            regularizer.reset_iteration()
+            recurrent_active = recursive_loop > 0 and (not tc.recursive_training or epoch >= tc.recursive_training_start_epoch)
             dataset_batch = []
             ids_batch = []
             ids_index = 0
@@ -253,7 +261,7 @@ def data_train_cell(config, erase, best_model, device):
                     dataset = GraphData(x=xt, edge_index=edges, num_nodes=x.shape[0])
                     dataset_batch.append(dataset)
 
-                if recursive_loop > 0:
+                if recurrent_active:
                     y = x_ts.frame(k + recursive_loop).pos.to(device).clone().detach()
                 elif time_step == 1:
                     y = torch.tensor(y_raw[k], dtype=torch.float32, device=device).clone().detach() / ynorm
@@ -285,7 +293,7 @@ def data_train_cell(config, erase, best_model, device):
             batch_state = CellState.from_packed(batch.x, dimension)
             pred = model(batch_state, batch.edge_index, data_id=data_id, training=True, k=k_batch, has_field=has_field)
 
-            if recursive_loop > 0:
+            if recurrent_active:
                 for loop in range(recursive_loop):
                     ids_index = 0
                     for b in range(batch_size):
@@ -303,6 +311,8 @@ def data_train_cell(config, erase, best_model, device):
                             V1 = pred[ids_index:ids_index + x.shape[0]] * ynorm
                         x[:, pos_start:pos_end] = bc_pos(X1 + V1 * delta_t)
                         x[:, vel_start:vel_end] = V1
+                        if tc.noise_level > 0:
+                            x[:, pos_start:pos_end] += tc.noise_level * torch.randn_like(x[:, pos_start:pos_end])
                         dataset_batch[b].x = x
 
                         ids_index += x.shape[0]
@@ -314,22 +324,11 @@ def data_train_cell(config, erase, best_model, device):
             if sim.state_type == 'sequence':
                 loss = (pred - y_batch).norm(2)
                 loss = loss + tc.coeff_model_a * (model.a[run, ind_a + 1] - model.a[run, ind_a]).norm(2)
-            if (coeff_continuous > 0) & (epoch > 0):
-                rr = torch.linspace(0, max_radius, 1000, dtype=torch.float32, device=device)
-                for n in np.random.permutation(n_cells)[:n_cells // 100]:
-                    embedding_ = model.a[0, n, :] * torch.ones((1000, mc.embedding_dim), device=device)
-                    in_features = build_edge_features(rr=rr + sim.max_radius / 200, embedding=embedding_,
-                                                  model_name=config.graph_model.cell_model_name,
-                                                  max_radius=sim.max_radius)
-                    func1 = model.lin_edge(in_features)
-                    in_features = build_edge_features(rr=rr, embedding=embedding_,
-                                                  model_name=config.graph_model.cell_model_name,
-                                                  max_radius=sim.max_radius)
-                    func0 = model.lin_edge(in_features)
-                    grad = func1 - func0
-                    loss = loss + coeff_continuous * grad.norm(2)
 
-            if recursive_loop > 1:
+            regul_loss = regularizer.compute(model, device)
+            loss = loss + regul_loss
+
+            if recurrent_active and recursive_loop > 1:
                 if batch_ratio < 1:
                     loss = (pred[ids_batch] - y_batch[ids_batch]).norm(2)
                 else:
@@ -362,6 +361,8 @@ def data_train_cell(config, erase, best_model, device):
                 optimizer_f.step()
 
             total_loss += loss.item()
+            total_loss_regul += regularizer.get_iteration_total()
+            regularizer.finalize_iteration()
 
             if ((epoch < 30) & (N % plot_frequency == 0)) | (N == 0):
                 plot_training(config=config, pred=pred, gt=y_batch, log_dir=log_dir,
@@ -384,9 +385,10 @@ def data_train_cell(config, erase, best_model, device):
                     'optimizer_state_dict': optimizer.state_dict()},
                    os.path.join(log_dir, 'models', f'best_model_with_{n_runs - 1}_graphs_{epoch}.pt'))
 
-        print("Epoch {}. Loss: {:.6f}".format(epoch, total_loss / n_cells))
-        logger.info("Epoch {}. Loss: {:.6f}".format(epoch, total_loss / n_cells))
+        print("Epoch {}. Loss: {:.6f}  Regul: {:.6f}".format(epoch, total_loss / n_cells, total_loss_regul / n_cells))
+        logger.info("Epoch {}. Loss: {:.6f}  Regul: {:.6f}".format(epoch, total_loss / n_cells, total_loss_regul / n_cells))
         list_loss.append(total_loss / n_cells)
+        loss_dict['loss'].append(total_loss / n_cells)
         torch.save(list_loss, os.path.join(log_dir, 'loss.pt'))
 
         scheduler.step()
@@ -470,6 +472,7 @@ def data_train_cell(config, erase, best_model, device):
 
         plt.tight_layout()
         fig_style.savefig(fig, f"./{log_dir}/tmp_training/Fig_{epoch}.tif")
+        plot_loss_components(loss_dict, regularizer.get_history(), log_dir, epoch=epoch, Niter=Niter)
 
 
 def data_test(config=None, config_file=None, visualize=False, style='color frame', verbose=True, best_model=20,
@@ -1124,11 +1127,15 @@ def data_train_cell_field(config, erase, best_model, device):
     logger.info(f'{n_frames * data_augmentation_loop // batch_size} iterations per epoch')
 
     list_loss = []
+    loss_dict = {'loss': []}
+    regularizer = LossRegularizer(tc, mc, sim, n_cells, plot_frequency=1)
+
     time.sleep(1)
 
     for epoch in range(n_epochs + 1):
 
         batch_size = get_batch_size(epoch)
+        regularizer.set_epoch(epoch)
 
         f_p_mask = []
         for k in range(batch_size):
@@ -1144,8 +1151,10 @@ def data_train_cell_field(config, erase, best_model, device):
         logger.info(f'batch_size: {batch_size}')
 
         total_loss = 0
+        total_loss_regul = 0
         Niter = n_frames * data_augmentation_loop // batch_size
         plot_frequency = int(Niter // 10)
+        regularizer.plot_frequency = max(1, plot_frequency)
 
         if epoch == 0:
             print(f'{Niter} iterations per epoch')
@@ -1204,6 +1213,7 @@ def data_train_cell_field(config, erase, best_model, device):
             batch_p_p = collate_graph_batch(dataset_batch_p_p)
             batch_f_p = collate_graph_batch(dataset_batch_f_p)
 
+            regularizer.reset_iteration()
             optimizer.zero_grad()
 
             if has_siren:
@@ -1216,12 +1226,16 @@ def data_train_cell_field(config, erase, best_model, device):
             pred_f_p = pred_f_p[f_p_mask]
 
             loss = (pred_p_p + pred_f_p - y_batch).norm(2)
+            regul_loss = regularizer.compute(model, device)
+            loss = loss + regul_loss
 
             loss.backward()
             optimizer.step()
             if has_siren:
                 optimizer_f.step()
             total_loss += loss.item()
+            total_loss_regul += regularizer.get_iteration_total()
+            regularizer.finalize_iteration()
 
             visualize_embedding = True
             if visualize_embedding & (((epoch < 30) & (N % plot_frequency == 0)) | (N == 0)):
@@ -1248,8 +1262,8 @@ def data_train_cell_field(config, erase, best_model, device):
                                 'optimizer_state_dict': optimizer_f.state_dict()},
                                os.path.join(log_dir, 'models', f'best_model_f_with_{n_runs - 1}_graphs_{epoch}_{N}.pt'))
 
-        print("Epoch {}. Loss: {:.6f}".format(epoch, total_loss / n_cells))
-        logger.info("Epoch {}. Loss: {:.6f}".format(epoch, total_loss / n_cells))
+        print("Epoch {}. Loss: {:.6f}  Regul: {:.6f}".format(epoch, total_loss / n_cells, total_loss_regul / n_cells))
+        logger.info("Epoch {}. Loss: {:.6f}  Regul: {:.6f}".format(epoch, total_loss / n_cells, total_loss_regul / n_cells))
         torch.save({'model_state_dict': model.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict()},
                    os.path.join(log_dir, 'models', f'best_model_with_{n_runs - 1}_graphs_{epoch}.pt'))
@@ -1258,6 +1272,7 @@ def data_train_cell_field(config, erase, best_model, device):
                         'optimizer_state_dict': optimizer_f.state_dict()},
                        os.path.join(log_dir, 'models', f'best_model_f_with_{n_runs - 1}_graphs_{epoch}.pt'))
         list_loss.append(total_loss / n_cells)
+        loss_dict['loss'].append(total_loss / n_cells)
         torch.save(list_loss, os.path.join(log_dir, 'loss.pt'))
 
         from cell_gnn.figure_style import default_style as fig_style
@@ -1333,3 +1348,7 @@ def data_train_cell_field(config, erase, best_model, device):
                 lr = tc.learning_rate_start
                 optimizer, n_total_params = set_trainable_parameters(model, lr_embedding, lr)
                 logger.info(f'Learning rates: {lr}, {lr_embedding}')
+
+        plt.tight_layout()
+        fig_style.savefig(fig, f"./{log_dir}/tmp_training/Fig_{epoch}.tif")
+        plot_loss_components(loss_dict, regularizer.get_history(), log_dir, epoch=epoch, Niter=Niter)

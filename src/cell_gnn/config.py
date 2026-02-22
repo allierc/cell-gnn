@@ -266,6 +266,10 @@ class TrainingConfig(BaseModel):
 
     coeff_loss1: float = 1
 
+    coeff_edge_weight: float = 0.0
+    coeff_edge_diff: float = 0.0
+    coeff_edge_norm: float = 0.0
+
     noise_level: float = 0
     measurement_noise_level: float = 0
     noise_model_level: float = 0
