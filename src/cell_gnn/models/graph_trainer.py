@@ -28,7 +28,6 @@ from cell_gnn.fitting_models import linear_model
 from cell_gnn.cell_state import CellState, CellTimeSeries, FieldState, FieldTimeSeries
 from cell_gnn.zarr_io import load_simulation_data, load_field_data, load_raw_array
 
-from geomloss import SamplesLoss
 from scipy.optimize import curve_fit
 from cell_gnn.graph_utils import GraphData, collate_graph_batch
 from tqdm import trange
@@ -159,7 +158,7 @@ def data_train_cell(config, erase, best_model, device):
     logger.info(f'N epochs: {n_epochs}')
     logger.info(f'initial batch_size: {batch_size}')
 
-    x_plot = x_ts.frame(0).to_packed().to(device)
+    x_plot = x_ts.frame(0).to(device)
     index_cells = get_index_cells(x_plot, n_cell_types, dimension)
     type_list = get_type_list(x_plot, dimension)
     print(f'N cells: {n_cells} {len(torch.unique(type_list))} types')
@@ -234,15 +233,12 @@ def data_train_cell(config, erase, best_model, device):
 
                 run = 0
                 k = time_window + np.random.randint(n_ts_frames - 1 - time_window - time_step - recursive_loop)
-                x = x_ts.frame(k).to_packed().to(device).clone().detach()
-                field_col = 2 + 2 * dimension
-                vel_start = 1 + dimension
-                vel_end = 1 + 2 * dimension
+                x_state = x_ts.frame(k).to(device).clone().detach()
                 if has_field:
-                    field = model_f(time=k / n_frames) ** 2
-                    x[:, field_col:field_col + 1] = field
+                    x_state.field = model_f(time=k / n_frames) ** 2
+                x = x_state.to_packed()
 
-                edges = edges_radius_blockwise(x, dimension, bc_dpos, min_radius, max_radius, block=4096)
+                edges = edges_radius_blockwise(x_state, dimension, bc_dpos, min_radius, max_radius, block=4096)
 
                 if batch_ratio < 1:
                     ids = np.random.permutation(x.shape[0])[:int(x.shape[0] * batch_ratio)]
@@ -297,25 +293,22 @@ def data_train_cell(config, erase, best_model, device):
                 for loop in range(recursive_loop):
                     ids_index = 0
                     for b in range(batch_size):
-                        x = dataset_batch[b].x.clone().detach()
+                        xs = CellState.from_packed(dataset_batch[b].x.clone().detach(), dimension)
+                        n_b = xs.n_cells
 
-                        pos_start = 1
-                        pos_end = 1 + dimension
-                        vel_start = 1 + dimension
-                        vel_end = 1 + 2 * dimension
-                        X1 = x[:, pos_start:pos_end]
-                        V1 = x[:, vel_start:vel_end]
+                        X1 = xs.pos
+                        V1 = xs.vel
                         if mc.prediction == '2nd_derivative':
-                            V1 += pred[ids_index:ids_index + x.shape[0]] * ynorm * delta_t
+                            V1 = V1 + pred[ids_index:ids_index + n_b] * ynorm * delta_t
                         else:
-                            V1 = pred[ids_index:ids_index + x.shape[0]] * ynorm
-                        x[:, pos_start:pos_end] = bc_pos(X1 + V1 * delta_t)
-                        x[:, vel_start:vel_end] = V1
+                            V1 = pred[ids_index:ids_index + n_b] * ynorm
+                        xs.pos = bc_pos(X1 + V1 * delta_t)
+                        xs.vel = V1
                         if tc.noise_level > 0:
-                            x[:, pos_start:pos_end] += tc.noise_level * torch.randn_like(x[:, pos_start:pos_end])
-                        dataset_batch[b].x = x
+                            xs.pos = xs.pos + tc.noise_level * torch.randn_like(xs.pos)
+                        dataset_batch[b].x = xs.to_packed()
 
-                        ids_index += x.shape[0]
+                        ids_index += n_b
 
                     batch = collate_graph_batch(dataset_batch)
                     batch_state = CellState.from_packed(batch.x, dimension)
@@ -340,8 +333,9 @@ def data_train_cell(config, erase, best_model, device):
                 else:
                     loss = (pred - y_batch).norm(2)
             elif time_step > 1:
-                pos_batch = x_batch[:, 1:dimension + 1]
-                vel_batch = x_batch[:, 1 + dimension:1 + 2 * dimension]
+                x_batch_state = CellState.from_packed(x_batch, dimension)
+                pos_batch = x_batch_state.pos
+                vel_batch = x_batch_state.vel
                 if mc.prediction == '2nd_derivative':
                     x_pos_pred = pos_batch + delta_t * time_step * (
                                 vel_batch + delta_t * time_step * pred * ynorm)
@@ -511,13 +505,6 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
     dimension = sim.dimension
     omega = mc.omega
 
-    # packed tensor column indices
-    pos_start = 1
-    pos_end = 1 + dimension
-    vel_start = 1 + dimension
-    vel_end = 1 + 2 * dimension
-    type_col = 1 + 2 * dimension
-    field_col = 2 + 2 * dimension
     do_tracking = tc.do_tracking
     cmap = CustomColorMap(config=config)
 
@@ -530,6 +517,7 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
         n_nodes_per_axis = int(np.sqrt(n_nodes))
 
     log_dir = 'log/' + config.config_file
+    os.makedirs(f"./{log_dir}/tmp_recons", exist_ok=True)
     files = glob.glob(f"./{log_dir}/tmp_recons/*")
     for f in files:
         os.remove(f)
@@ -569,12 +557,12 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
         # mutable packed copy for rollout write-back (time_window)
         # reconstruct (T, N, C) packed tensor from timeseries fields
         x_packed = torch.stack([x_ts.frame(t).to_packed() for t in range(x_ts.n_frames)])
-        x = x_ts.frame(0).to_packed()
+        x0_frame = x_ts.frame(0)
         if ('PDE_MLPs' not in mc.cell_model_name) & ('PDE_F' not in mc.cell_model_name) & ('PDE_M' not in mc.cell_model_name):
-            n_cells = int(x.shape[0] / ratio)
+            n_cells = int(x0_frame.n_cells / ratio)
             config.simulation.n_cells = n_cells
         n_frames = x_ts.n_frames
-        index_cells = get_index_cells(x, n_cell_types, dimension)
+        index_cells = get_index_cells(x0_frame, n_cell_types, dimension)
         if n_cell_types > 1000:
             index_cells = []
             for n in range(3):
@@ -602,13 +590,13 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
             torch.tensor(np.ones((n_runs, int(new_ncells), 2)), device=device, dtype=torch.float32,
                          requires_grad=False))
         n_cells = new_ncells
-        index_cells = get_index_cells(x, n_cell_types, dimension)
+        index_cells = get_index_cells(x0_frame, n_cell_types, dimension)
     if sample_embedding:
         model_a_ = nn.Parameter(
             torch.tensor(np.ones((int(n_cells), model.embedding_dim)), device=device, requires_grad=False,
                          dtype=torch.float32))
         for n in range(n_cells):
-            t = to_numpy(x[n, type_col]).astype(int)
+            t = to_numpy(x0_frame.cell_type[n]).astype(int)
             index = first_cell_id_cells[t][np.random.randint(n_sub_population)]
             with torch.no_grad():
                 model_a_[n] = first_embedding[index].clone().detach()
@@ -672,8 +660,6 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
 
     rmserr_list = []
     pred_err_list = []
-    gloss = SamplesLoss(loss="sinkhorn", p=2, blur=.05)
-    geomloss_list = []
     angle_list = []
     time.sleep(1)
 
@@ -686,8 +672,8 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
 
     start_it = 0
 
-    x = x_ts.frame(start_it).to_packed()
-    n_cells = x.shape[0]
+    x = x_ts.frame(start_it).to(device)
+    n_cells = x.n_cells
     x_inference_list = []
 
     for it in trange(start_it, stop_it, ncols=100):
@@ -696,29 +682,24 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
                                memory_percentage_threshold=0.6)
 
         if it < n_frames - 4:
-            x0 = x_ts.frame(it).to_packed()
-            x0_next = x_ts.frame(it + time_step).to_packed()
+            x0 = x_ts.frame(it).to(device)
+            x0_next = x_ts.frame(it + time_step).to(device)
             if not (mc.cell_model_name == 'PDE_R'):
                 y0 = y_raw[it].clone().detach()
 
         if do_tracking:
-            x = x0.clone().detach()
+            x = x0.clone()
 
         # error calculations
         if has_bounding_box:
             rmserr = torch.sqrt(
-                torch.mean(torch.sum(bc_dpos(x[:, pos_start:pos_end] - x0[:, pos_start:pos_end]) ** 2, axis=1)))
+                torch.mean(torch.sum(bc_dpos(x.pos - x0.pos) ** 2, axis=1)))
         else:
-            if (do_tracking) | (x.shape[0] != x0.shape[0]):
+            if (do_tracking) | (x.n_cells != x0.n_cells):
                 rmserr = torch.zeros(1, device=device)
             else:
                 rmserr = torch.sqrt(
-                    torch.mean(torch.sum(bc_dpos(x[:, pos_start:pos_end] - x0[:, pos_start:pos_end]) ** 2, axis=1)))
-            if x.shape[0] > 5000:
-                geomloss = gloss(x[0:5000, pos_start:pos_end], x0[0:5000, pos_start:pos_end])
-            else:
-                geomloss = gloss(x[:, pos_start:pos_end], x0[:, pos_start:pos_end])
-            geomloss_list.append(geomloss.item())
+                    torch.mean(torch.sum(bc_dpos(x.pos - x0.pos) ** 2, axis=1)))
         rmserr_list.append(rmserr.item())
 
         if config.training.shared_embedding:
@@ -729,13 +710,11 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
         # update calculations
         with torch.no_grad():
 
-            distance = torch.sum(bc_dpos(x[:, None, pos_start:pos_end] - x[None, :, pos_start:pos_end]) ** 2, dim=2)
-            adj_t = ((distance < max_radius ** 2) & (distance > min_radius ** 2)).float() * 1
-            edge_index = adj_t.nonzero().t().contiguous()
+            edge_index = edges_radius_blockwise(x, dimension, bc_dpos, min_radius, max_radius, block=4096)
 
             if has_field:
                 field = model_f(time=it / n_frames) ** 2
-                x[:, field_col:field_col + 1] = field
+                x.field = field
 
             if time_window > 0:
                 xt = []
@@ -744,13 +723,16 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
                     xt.append(x_[:, :])
                 dataset = GraphData(x=xt, edge_index=edge_index)
             else:
-                dataset = GraphData(x=x, edge_index=edge_index)
+                dataset = GraphData(x=x.to_packed(), edge_index=edge_index)
 
             if 'test_simulation' in test_mode:
                 y = y0 / ynorm
                 pred = y
             else:
-                test_state = CellState.from_packed(dataset.x, dimension)
+                if time_window > 0:
+                    test_state = CellState.from_packed(dataset.x, dimension)
+                else:
+                    test_state = x
                 pred = model(test_state, dataset.edge_index, data_id=data_id, training=False, has_field=has_field, k=it)
                 y = pred
 
@@ -760,19 +742,19 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
                     x_next = bc_pos(y[:, 0:dimension])
                 elif time_step == 2:
                     x_next = bc_pos(y[:, dimension:2 * dimension])
-                x[:, vel_start:vel_end] = (x_next - x[:, pos_start:pos_end]) / delta_t
-                x[:, pos_start:pos_end] = x_next
-                loss = (x[:, pos_start:pos_end] - x0_next[:, pos_start:pos_end]).norm(2)
+                x.vel = (x_next - x.pos) / delta_t
+                x.pos = x_next
+                loss = (x.pos - x0_next.pos).norm(2)
                 pred_err_list.append(to_numpy(torch.sqrt(loss)))
             elif do_tracking:
-                x_pos_next = x0_next[:, pos_start:pos_end].clone().detach()
+                x_pos_next = x0_next.pos.clone().detach()
                 if pred.shape[1] != dimension:
                     pred = torch.cat((pred, torch.zeros(pred.shape[0], 1, device=pred.device)), dim=1)
                 if mc.prediction == '2nd_derivative':
-                    x_pos_pred = (x[:, pos_start:pos_end] + delta_t * time_step * (
-                                x[:, vel_start:vel_end] + delta_t * time_step * pred * ynorm))
+                    x_pos_pred = (x.pos + delta_t * time_step * (
+                                x.vel + delta_t * time_step * pred * ynorm))
                 else:
-                    x_pos_pred = (x[:, pos_start:pos_end] + delta_t * time_step * pred * ynorm)
+                    x_pos_pred = (x.pos + delta_t * time_step * pred * ynorm)
                 distance = torch.sum(bc_dpos(x_pos_pred[:, None, :] - x_pos_next[None, :, :]) ** 2, dim=2)
                 result = distance.min(dim=1)
                 min_value = result.values
@@ -780,29 +762,29 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
                 loss = torch.std(torch.sqrt(min_value))
                 pred_err_list.append(to_numpy(torch.sqrt(loss)))
                 if 'inference' in test_mode:
-                    x[:, vel_start:vel_end] = pred.clone().detach() / (delta_t * time_step)
+                    x.vel = pred.clone().detach() / (delta_t * time_step)
 
             else:
                 if mc.prediction == '2nd_derivative':
                     y = y * ynorm * delta_t
-                    x[:n_cells, vel_start:vel_end] = x[:n_cells, vel_start:vel_end] + y[:n_cells]  # speed update
+                    x.vel[:n_cells] = x.vel[:n_cells] + y[:n_cells]  # speed update
                 else:
                     y = y * vnorm
-                    x[:n_cells, vel_start:vel_end] = y[:n_cells]
-                x[:, pos_start:pos_end] = bc_pos(
-                    x[:, pos_start:pos_end] + x[:, vel_start:vel_end] * delta_t)  # position update
+                    x.vel[:n_cells] = y[:n_cells]
+                x.pos = bc_pos(x.pos + x.vel * delta_t)  # position update
 
             if 'inference' in test_mode:
                 x_inference_list.append(x)
 
             if (time_window > 1) & ('plot_data' not in test_mode):
-                moving_pos = torch.argwhere(x[:, type_col] != 0)
-                x_packed[it + 1, moving_pos.squeeze(), pos_start:vel_end] = x[moving_pos.squeeze(),
-                                                                               pos_start:vel_end].clone().detach()
+                moving_pos = torch.argwhere(x.cell_type != 0)
+                # write pos + vel back into packed array for time_window lookback
+                pos_vel = torch.cat([x.pos, x.vel], dim=1).clone().detach()
+                x_packed[it + 1, moving_pos.squeeze(), 1:1 + 2 * dimension] = pos_vel[moving_pos.squeeze()]
 
         # vizualization
         if 'plot_data' in test_mode:
-            x = x_ts.frame(it).to_packed()
+            x = x_ts.frame(it).to(device)
 
         if (it % step == 0) & (it >= 0) & visualize:
 
@@ -819,134 +801,171 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
                 active_style = fig_style
             active_style.apply_globally()
 
-            fig, ax = fig_init(formatx='%.1f', formaty='%.1f')
-            ax.tick_params(axis='both', which='major', pad=15)
+            is_3d = (dimension == 3)
+            show_true = ('true' in style)
 
-            if do_tracking:
-
-                plt.scatter(to_numpy(x0[:, pos_start + 1]), to_numpy(x0[:, pos_start]), s=10, c=active_style.foreground, alpha=0.5)
-                plt.scatter(to_numpy(x_pos_pred[:, 1]), to_numpy(x_pos_pred[:, 0]), s=10, c='r')
-                x1 = x_ts.frame(it + time_step).to_packed()
-                plt.scatter(to_numpy(x1[:, pos_start + 1]), to_numpy(x1[:, pos_start]), s=10, c='g')
-
-                plt.xticks([])
-                plt.yticks([])
-
-                if 'zoom' in style:
-                    ax.quiver(to_numpy(x0[:, pos_start + 1]), to_numpy(x0[:, pos_start]),
-                              to_numpy(x[:, vel_start + 1]) * delta_t, to_numpy(x[:, vel_start]) * delta_t,
-                              color='g', angles='xy', scale_units='xy', scale=1, width=0.002)
-                    plt.xlim([300, 400])
-                    plt.ylim([300, 400])
-                else:
-                    plt.xlim([0, 700])
-                    plt.ylim([0, 700])
-                plt.tight_layout()
-
+            # fixed 1x2 grid for 3D (3D + z-slice) or 1x1 for 2D
+            fig_dpi = 100
+            if is_3d:
+                nrows, ncols = 1, 2
+                fig_w, fig_h = 6 * 2, 6
             else:
+                nrows, ncols = 1, 1
+                fig_w, fig_h = 6, 6
+            fig = plt.figure(figsize=(fig_w, fig_h), facecolor=active_style.background)
+            ax_idx = 1
+
+            # edge data for drawing
+            ei_np = to_numpy(edge_index)
+            pos_all_np = to_numpy(x.pos)
+            if show_true:
+                pos_true_np = to_numpy(x0.pos)
+            # keep only forward edges (src < dst) to avoid double-drawing
+            fwd = ei_np[0] < ei_np[1]
+            ei_fwd = ei_np[:, fwd]
+            # subsample if too many edges
+            max_plot_edges = 5000
+            if ei_fwd.shape[1] > max_plot_edges:
+                idx_sub = np.random.choice(ei_fwd.shape[1], max_plot_edges, replace=False)
+                ei_fwd = ei_fwd[:, idx_sub]
+
+            # === helper: draw edges on a 2D axis ===
+            def _draw_edges_2d(ax, pos_np, ei):
+                from matplotlib.collections import LineCollection
+                src_pos = pos_np[ei[0]]
+                dst_pos = pos_np[ei[1]]
+                segments = np.stack([src_pos[:, :2], dst_pos[:, :2]], axis=1)
+                lc = LineCollection(segments, colors='#888888', linewidths=0.3, alpha=0.3)
+                ax.add_collection(lc)
+
+            # === helper: draw edges on a 3D axis ===
+            def _draw_edges_3d(ax, pos_np, ei):
+                from mpl_toolkits.mplot3d.art3d import Line3DCollection
+                src_pos = pos_np[ei[0]]
+                dst_pos = pos_np[ei[1]]
+                segments = np.stack([src_pos, dst_pos], axis=1)
+                lc = Line3DCollection(segments, colors='#888888', linewidths=0.3, alpha=0.3)
+                ax.add_collection3d(lc)
+
+            # === helper: scatter cells on a 2D axis ===
+            def _scatter_2d(ax, x_state, label=''):
                 s_p = 10
-                index_cells = get_index_cells(x, n_cell_types, dimension)
-                for n in range(n_cell_types):
-                    if 'bw' in style:
-                        plt.scatter(x[index_cells[n], pos_start + 1].detach().cpu().numpy(),
-                                    x[index_cells[n], pos_start].detach().cpu().numpy(), s=s_p, color=active_style.foreground)
-                    else:
-                        plt.scatter(x[index_cells[n], pos_start + 1].detach().cpu().numpy(),
-                                    x[index_cells[n], pos_start].detach().cpu().numpy(), s=s_p, color=cmap.color(n))
-                plt.xlim([0, 1])
-                plt.ylim([0, 1])
+                _draw_edges_2d(ax, pos_all_np, ei_fwd)
+                if show_true:
+                    ax.scatter(pos_all_np[:, 0], pos_all_np[:, 1], s=s_p, color='b', alpha=0.5, label='rollout')
+                    ax.scatter(pos_true_np[:, 0], pos_true_np[:, 1], s=s_p, color='g', alpha=0.5, label='true')
+                else:
+                    index_cells = get_index_cells(x_state, n_cell_types, dimension)
+                    pos_np = to_numpy(x_state.pos)
+                    for n in range(n_cell_types):
+                        px = pos_np[index_cells[n], 0]
+                        py = pos_np[index_cells[n], 1]
+                        if 'bw' in style:
+                            ax.scatter(px, py, s=s_p, color=active_style.foreground)
+                        else:
+                            ax.scatter(px, py, s=s_p, color=cmap.color(n))
+                ax.set_xlim([0, 1])
+                ax.set_ylim([0, 1])
+                if label:
+                    ax.set_title(label, fontsize=active_style.font_size, color=active_style.foreground)
 
-                if ('field' in style) & has_field:
-                    if 'zoom' in style:
-                        plt.scatter(to_numpy(x[:, pos_start + 1]), to_numpy(x[:, pos_start]), s=s_p * 50, c=to_numpy(x[:, field_col]) * 20,
-                                    alpha=0.5, cmap='viridis', vmin=0, vmax=1.0)
-                    else:
-                        plt.scatter(to_numpy(x[:, pos_start + 1]), to_numpy(x[:, pos_start]), s=s_p * 2, c=to_numpy(x[:, field_col]) * 20,
-                                    alpha=0.5, cmap='viridis', vmin=0, vmax=1.0)
+            # === helper: scatter cells on a 3D axis ===
+            def _scatter_3d(ax, x_state, label=''):
+                s_p = 10
+                _draw_edges_3d(ax, pos_all_np, ei_fwd)
+                if show_true:
+                    ax.scatter(pos_all_np[:, 0], pos_all_np[:, 1], pos_all_np[:, 2],
+                               s=s_p, color='b', alpha=0.5, edgecolors='none', label='rollout')
+                    ax.scatter(pos_true_np[:, 0], pos_true_np[:, 1], pos_true_np[:, 2],
+                               s=s_p, color='g', alpha=0.5, edgecolors='none', label='true')
+                else:
+                    index_cells = get_index_cells(x_state, n_cell_types, dimension)
+                    pos_np = to_numpy(x_state.pos)
+                    for n in range(n_cell_types):
+                        px = pos_np[index_cells[n], 0]
+                        py = pos_np[index_cells[n], 1]
+                        pz = pos_np[index_cells[n], 2]
+                        if 'bw' in style:
+                            ax.scatter(px, py, pz, s=s_p, color=active_style.foreground, edgecolors='none')
+                        else:
+                            ax.scatter(px, py, pz, s=s_p, color=cmap.color(n), edgecolors='none')
+                ax.set_xlim([0, 1]); ax.set_ylim([0, 1]); ax.set_zlim([0, 1])
+                active_style.xlabel(ax, 'x')
+                active_style.ylabel(ax, 'y')
+                ax.set_zlabel('z', fontsize=active_style.label_font_size, color=active_style.foreground)
+                if label:
+                    ax.set_title(label, fontsize=active_style.font_size, color=active_style.foreground)
 
-                if cell_of_interest > 1:
+            # === helper: 2D Z-slice ===
+            def _scatter_2d_slice(ax, x_state, label=''):
+                s_p = 15
+                z_center, z_thickness = 0.5, 0.1
+                z_vals = pos_all_np[:, 2]
+                mask = np.abs(z_vals - z_center) < z_thickness
+                # draw edges within the slice
+                slice_indices = np.where(mask)[0]
+                slice_set = set(slice_indices.tolist())
+                slice_edge_mask = np.array([ei_fwd[0, k] in slice_set and ei_fwd[1, k] in slice_set
+                                            for k in range(ei_fwd.shape[1])])
+                if slice_edge_mask.any():
+                    _draw_edges_2d(ax, pos_all_np, ei_fwd[:, slice_edge_mask])
+                pos_slice = pos_all_np[mask]
+                if show_true:
+                    ax.scatter(pos_slice[:, 0], pos_slice[:, 1], s=s_p, color='b', alpha=0.5, edgecolors='none', label='rollout')
+                    pos_true_slice = pos_true_np[mask]
+                    ax.scatter(pos_true_slice[:, 0], pos_true_slice[:, 1], s=s_p, color='g', alpha=0.5, edgecolors='none', label='true')
+                else:
+                    index_cells = get_index_cells(x_state, n_cell_types, dimension)
+                    for n in range(n_cell_types):
+                        idx = index_cells[n].flatten()
+                        type_mask = np.isin(np.arange(len(pos_all_np)), idx) & mask
+                        if type_mask.any():
+                            c = active_style.foreground if 'bw' in style else cmap.color(n)
+                            ax.scatter(pos_all_np[type_mask, 0], pos_all_np[type_mask, 1],
+                                       s=s_p, color=c, edgecolors='none')
+                ax.set_xlim([0, 1]); ax.set_ylim([0, 1])
+                ax.set_aspect('equal')
+                if not label:
+                    label = f'z slice ({z_center - z_thickness:.1f} < z < {z_center + z_thickness:.1f})'
+                ax.set_title(label, fontsize=active_style.font_size, color=active_style.foreground)
 
-                    xc = to_numpy(x[cell_of_interest, pos_start + 1])
-                    yc = to_numpy(x[cell_of_interest, pos_start])
-                    pos = torch.argwhere(edge_index[1, :] == cell_of_interest)
-                    pos = pos[:, 0]
-                    if 'zoom' in style:
-                        plt.scatter(to_numpy(x[edge_index[0, pos], pos_start + 1]), to_numpy(x[edge_index[0, pos], pos_start]), s=s_p * 10,
-                                    color=active_style.foreground, alpha=1.0)
-                    else:
-                        plt.scatter(to_numpy(x[edge_index[0, pos], pos_start + 1]), to_numpy(x[edge_index[0, pos], pos_start]), s=s_p * 1,
-                                    color=active_style.foreground, alpha=1.0)
+            # --- single row: position panels ---
+            if is_3d:
+                ax1 = fig.add_subplot(nrows, ncols, ax_idx, projection='3d')
+                title = 'rollout + true' if show_true else 'predicted'
+                if 'name' in style:
+                    title = f'{os.path.basename(log_dir)}  {title}'
+                _scatter_3d(ax1, x, label=title)
+                ax_idx += 1
 
-                    plt.arrow(x=to_numpy(x[cell_of_interest, pos_start + 1]), y=to_numpy(x[cell_of_interest, pos_start]),
-                              dx=to_numpy(x[cell_of_interest, vel_start + 1]) * delta_t * 100,
-                              dy=to_numpy(x[cell_of_interest, vel_start]) * delta_t * 100, head_width=0.004,
-                              length_includes_head=True, color='b')
-                    if mc.prediction == '2nd_derivative':
-                        plt.arrow(x=to_numpy(x[cell_of_interest, pos_start + 1]), y=to_numpy(x[cell_of_interest, pos_start]),
-                                  dx=to_numpy(y0[cell_of_interest, 1]) * delta_t ** 2 * 100,
-                                  dy=to_numpy(y0[cell_of_interest, 0]) * delta_t ** 2 * 100, head_width=0.004,
-                                  length_includes_head=True, color='g')
-                        plt.arrow(x=to_numpy(x[cell_of_interest, pos_start + 1]), y=to_numpy(x[cell_of_interest, pos_start]),
-                                  dx=to_numpy(y[cell_of_interest, 1]) * delta_t * 100,
-                                  dy=to_numpy(y[cell_of_interest, 0]) * delta_t * 100, head_width=0.004,
-                                  length_includes_head=True, color='r')
+                ax2 = fig.add_subplot(nrows, ncols, ax_idx)
+                _scatter_2d_slice(ax2, x)
+                ax_idx += 1
+            else:
+                ax1 = fig.add_subplot(nrows, ncols, ax_idx)
+                title = 'rollout + true' if show_true else ''
+                if 'name' in style and not show_true:
+                    title = f'{os.path.basename(log_dir)}'
+                elif 'name' in style:
+                    title = f'{os.path.basename(log_dir)}  {title}'
+                _scatter_2d(ax1, x, label=title)
+                ax_idx += 1
 
-                if 'zoom' in style:
-                    plt.xlim([xc - 0.1, xc + 0.1])
-                    plt.ylim([yc - 0.1, yc + 0.1])
-                    plt.xticks([])
-                    plt.yticks([])
-
-            if 'latex' in style:
-                active_style.xlabel(ax, r'$x$', fontsize=active_style.frame_title_font_size * 1.6)
-                active_style.ylabel(ax, r'$y$', fontsize=active_style.frame_title_font_size * 1.6)
-                ax.tick_params(axis='both', labelsize=active_style.frame_title_font_size)
-            if 'frame' in style:
-                active_style.xlabel(ax, 'x', fontsize=active_style.frame_title_font_size)
-                active_style.ylabel(ax, 'y', fontsize=active_style.frame_title_font_size)
-                ax.tick_params(axis='both', labelsize=active_style.frame_title_font_size, pad=15)
-            if 'arrow' in style:
-                mask = to_numpy(x[:, vel_start + 1]) != 0
-                px = to_numpy(x[:, pos_start + 1])
-                py = to_numpy(x[:, pos_start])
-                if 'speed' in style:
-                    ax.quiver(px[mask], py[mask],
-                              to_numpy(x[:, vel_start + 1])[mask] * delta_t * 2,
-                              to_numpy(x[:, vel_start])[mask] * delta_t * 2,
-                              color='g', angles='xy', scale_units='xy', scale=1, width=0.002)
-                if 'acc_true' in style:
-                    ax.quiver(px[mask], py[mask],
-                              to_numpy(y0[:, 1])[mask] / 5E3,
-                              to_numpy(y0[:, 0])[mask] / 5E3,
-                              color='r', angles='xy', scale_units='xy', scale=1, width=0.002)
-                if 'acc_learned' in style:
-                    ynorm_s = to_numpy(ynorm.squeeze())
-                    ax.quiver(px[mask], py[mask],
-                              to_numpy(pred[:, 1])[mask] * ynorm_s / 5E3,
-                              to_numpy(pred[:, 0])[mask] * ynorm_s / 5E3,
-                              color='r', angles='xy', scale_units='xy', scale=1, width=0.002)
-                plt.xlim([0, 1])
-                plt.ylim([0, 1])
-            if 'name' in style:
-                ax.set_title(f"{os.path.basename(log_dir)}", fontsize=active_style.font_size * 1.7, color=active_style.foreground)
-            if 'no_ticks' in style:
-                plt.xticks([])
-                plt.yticks([])
-            if 'PDE_G' in mc.cell_model_name:
-                plt.xlim([-2, 2])
-                plt.ylim([-2, 2])
-            plt.tight_layout()
-            plt.tight_layout()
-            active_style.savefig(fig, f"./{log_dir}/tmp_recons/Fig_{config_file}_{run}_{num}.tif")
+            fig.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05,
+                                wspace=0.3)
+            # bbox_inches=None to keep fixed pixel size across frames (no tight cropping)
+            active_style.savefig(fig, f"./{log_dir}/tmp_recons/Fig_{config_file}_{run}_{num}.png",
+                                 dpi=fig_dpi, bbox_inches=None)
 
             if ('feature' in style) & ('PDE_MLPs_A' in config.graph_model.cell_model_name):
                 n_feat_cols = model.new_features.shape[1]
                 fig_f, axes_f = fig_style.figure(ncols=n_feat_cols, width=22, height=6)
                 if not isinstance(axes_f, np.ndarray):
                     axes_f = np.array([axes_f])
+                pos_np = to_numpy(x.pos)
                 for k in range(n_feat_cols):
                     ax_f = axes_f[k]
-                    ax_f.scatter(to_numpy(x[:, pos_start + 1]), to_numpy(x[:, pos_start]), c=to_numpy(model.new_features[:, k]), s=5,
+                    ax_f.scatter(pos_np[:, 1], pos_np[:, 0], c=to_numpy(model.new_features[:, k]), s=5,
                                  cmap='viridis')
                     ax_f.set_title(f'new_features {k}')
                     ax_f.set_xlim([0, 1])
@@ -956,8 +975,8 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
 
             if 'boundary' in style:
                 fig_b, ax_b = fig_init(formatx='%.1f', formaty='%.1f')
-                t = torch.min(x[:, field_col:], -1).values
-                ax_b.scatter(to_numpy(x[:, pos_start + 1]), to_numpy(x[:, pos_start]), s=25, c=to_numpy(t), vmin=-1, vmax=1)
+                t = torch.min(x.field, -1).values
+                ax_b.scatter(to_numpy(x.pos[:, 1]), to_numpy(x.pos[:, 0]), s=25, c=to_numpy(t), vmin=-1, vmax=1)
                 ax_b.set_xlim([0, 1])
                 ax_b.set_ylim([0, 1])
                 plt.tight_layout()
@@ -974,28 +993,23 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
 
     with torch.no_grad():
         for it in trange(n_test_frames, ncols=100, desc='one-step residual'):
-            x0 = x_ts.frame(it).to_packed().to(device)
+            x0 = x_ts.frame(it).to(device)
             y_gt = y_raw[it].clone().detach()
 
-            distance = torch.sum(bc_dpos(x0[:, None, pos_start:pos_end] - x0[None, :, pos_start:pos_end]) ** 2, dim=2)
-            adj_t = ((distance < max_radius ** 2) & (distance > min_radius ** 2)).float()
-            edge_index = adj_t.nonzero().t().contiguous()
-
-            dataset = GraphData(x=x0, edge_index=edge_index)
-            test_state = CellState.from_packed(dataset.x, dimension)
+            edge_index = edges_radius_blockwise(x0, dimension, bc_dpos, min_radius, max_radius, block=4096)
 
             if config.training.shared_embedding:
                 data_id = torch.ones((n_cells, 1), dtype=torch.int, device=device)
             else:
                 data_id = torch.ones((n_cells, 1), dtype=torch.int, device=device) * run
 
-            pred = model(test_state, dataset.edge_index, data_id=data_id, training=False, has_field=has_field, k=it)
+            pred = model(x0, edge_index, data_id=data_id, training=False, has_field=has_field, k=it)
 
             residual = y_gt[:n_cells] - pred[:n_cells] * ynorm
             residual_list.append(to_numpy(residual))
 
             if (it % step == 0) and visualize:
-                pos_np = to_numpy(x0[:n_cells, pos_start:pos_end])
+                pos_np = to_numpy(x0.pos[:n_cells])
                 res_np = to_numpy(residual)
                 plot_residual_field_3d(pos_np, res_np, it, dimension, log_dir, cmap, sim)
 
@@ -1018,8 +1032,6 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
     results = {
         'rollout_RMSE_mean': float(np.mean(rmserr_list)) if rmserr_list else 0.0,
         'rollout_RMSE_final': float(rmserr_list[-1]) if rmserr_list else 0.0,
-        'rollout_geomloss_mean': float(np.mean(geomloss_list)) if geomloss_list else 0.0,
-        'rollout_geomloss_final': float(geomloss_list[-1]) if geomloss_list else 0.0,
         'residual_mean_magnitude': float(residual_mag.mean()),
         'residual_max_magnitude': float(residual_mag.max()),
     }

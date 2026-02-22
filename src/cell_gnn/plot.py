@@ -16,6 +16,7 @@ import torch
 import torch.nn as nn
 import umap
 
+from cell_gnn.cell_state import CellState
 from cell_gnn.figure_style import default_style, dark_style, FigureStyle
 from cell_gnn.utils import to_numpy
 
@@ -291,7 +292,6 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
     max_radius = simulation_config.max_radius
     n_runs = train_config.n_runs
     dimension = simulation_config.dimension
-    type_col = 1 + 2 * dimension
 
     # --- Embedding scatter plot ---
     # All montage panels use style.montage_figure() for consistent sizing/fonts.
@@ -444,7 +444,10 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
                 # Plot with LineCollection
                 rr_np = to_numpy(rr)
                 ynorm_np = to_numpy(ynorm)
-                type_arr = to_numpy(x[:n_cells, type_col]).astype(int)
+                if isinstance(x, CellState):
+                    type_arr = to_numpy(x.cell_type[:n_cells]).astype(int)
+                else:
+                    type_arr = to_numpy(CellState.from_packed(x, dimension).cell_type[:n_cells]).astype(int)
 
                 subsample = 5 if n_runs <= 5 else 1
                 _plot_curves_fast(ax, rr_np, to_numpy(func_list), type_arr, cmap,
@@ -509,11 +512,16 @@ def plot_training_cell_field(config, has_siren, has_siren_time, model_f, n_frame
     train_config = config.training
     model_config = config.graph_model
     dimension = simulation_config.dimension
-    type_col = 1 + 2 * dimension
 
     max_radius = simulation_config.max_radius
     n_nodes = simulation_config.n_nodes
     n_nodes_per_axis = int(np.sqrt(n_nodes))
+
+    # extract cell_type from x (packed tensor or CellState)
+    if isinstance(x, CellState):
+        x_cell_type = x.cell_type
+    else:
+        x_cell_type = CellState.from_packed(x, dimension).cell_type
 
     # --- Embedding scatter ---
     fig, ax = style.figure(height=12)
@@ -529,7 +537,7 @@ def plot_training_cell_field(config, has_siren, has_siren_time, model_f, n_frame
         plt.axis('off')
     embedding = get_embedding(model.a, dataset_num)
     if n_neuron_types > 1000:
-        ax.scatter(embedding[:, 0], embedding[:, 1], c=to_numpy(x[:, type_col]) / n_neurons, s=1, cmap='viridis')
+        ax.scatter(embedding[:, 0], embedding[:, 1], c=to_numpy(x_cell_type) / n_neurons, s=1, cmap='viridis')
     else:
         for n in range(n_neuron_types):
             ax.scatter(embedding[index_cells[n], 0],
@@ -564,7 +572,7 @@ def plot_training_cell_field(config, has_siren, has_siren_time, model_f, n_frame
     # Plot with LineCollection
     rr_np = to_numpy(rr)
     ynorm_np = to_numpy(ynorm)
-    type_arr = to_numpy(x[:n_neurons, type_col]).astype(int)
+    type_arr = to_numpy(x_cell_type[:n_neurons]).astype(int)
 
     _plot_curves_fast(ax, rr_np, to_numpy(func_list), type_arr, cmap,
                       ynorm=ynorm_np, subsample=5, alpha=0.25, linewidth=8)
@@ -976,7 +984,7 @@ def plot_residual_field_3d(pos, residual, frame, dimension, log_dir, cmap, sim):
         n = pos.shape[0]
         step_q = max(1, n // 300)
         idx = np.arange(0, n, step_q)
-        scale = sim.max_radius * 5
+        scale = sim.max_radius * 0.5
         ax1.quiver(pos[idx, 0], pos[idx, 1], pos[idx, 2],
                    residual[idx, 0] * scale, residual[idx, 1] * scale, residual[idx, 2] * scale,
                    color='blue', alpha=0.6, arrow_length_ratio=0.3, linewidth=0.8)

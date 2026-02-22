@@ -24,6 +24,7 @@ from cell_gnn.utils import (
     fig_init,
     get_equidistant_points,
     get_edges_with_cache,
+    edges_radius_blockwise,
     NeighborCache,
     choose_boundary_values,
 )
@@ -88,6 +89,7 @@ def data_generate(
             step=step,
             device=device,
             save=save,
+            erase=erase,
         )
         return
 
@@ -131,6 +133,7 @@ def load_from_data(
     step=100,
     device=None,
     save=True,
+    erase=False,
 ):
     """Load external simulation data from NPZ and write to zarr V3 format.
 
@@ -176,7 +179,11 @@ def load_from_data(
     # prepare output directory
     folder = f"./graphs_data/{dataset_name}/"
     os.makedirs(folder, exist_ok=True)
-    os.makedirs(f"{folder}/Fig/", exist_ok=True)
+    fig_folder = f"{folder}/Fig/"
+    os.makedirs(fig_folder, exist_ok=True)
+    if erase:
+        for f in glob.glob(f"{fig_folder}*"):
+            os.remove(f)
 
     if not save:
         print("save=False, skipping zarr write")
@@ -198,6 +205,7 @@ def load_from_data(
     )
 
     cell_type = torch.zeros(n_cells, dtype=torch.long)
+    _, bc_dpos = choose_boundary_values(sim.boundary)
 
     for t in trange(n_frames_total, ncols=100):
         state = CellState(
@@ -211,30 +219,32 @@ def load_from_data(
 
         # 3D scatter plot
         if visualize and (t % step == 0) and dimension == 3:
-            fig = plt.figure(figsize=(20, 10), facecolor=default_style.background)
+            from mpl_toolkits.mplot3d.art3d import Line3DCollection
+            from matplotlib.collections import LineCollection
+
+            # build edges using blockwise radius (same method as training)
+            edge_index = edges_radius_blockwise(
+                state, dimension, bc_dpos, sim.min_radius, sim.max_radius, block=4096)
+            ei_np = to_numpy(edge_index)
+            # forward edges only (src < dst)
+            fwd = ei_np[0] < ei_np[1]
+            ei_fwd = ei_np[:, fwd]
+            max_plot_edges = 5000
+            if ei_fwd.shape[1] > max_plot_edges:
+                idx_sub = np.random.choice(ei_fwd.shape[1], max_plot_edges, replace=False)
+                ei_fwd = ei_fwd[:, idx_sub]
+
+            fig = plt.figure(figsize=(12, 6), facecolor=default_style.background)
+            pos_all = pos[t]  # (N, 3)
 
             ax1 = fig.add_subplot(121, projection="3d")
-            pos_all = pos[t]  # (N, 3)
             ax1.scatter(
                 pos_all[:, 0], pos_all[:, 1], pos_all[:, 2],
-                s=20, color=cmap.color(0), alpha=0.5, edgecolors="none", zorder=2,
+                s=10, color=cmap.color(0), alpha=0.5, edgecolors="none", zorder=2,
             )
-            # draw 3D edges between cells within max_radius * 3
-            max_r_3d = sim.max_radius * 3
-            dx_3d = pos_all[:, None, :] - pos_all[None, :, :]
-            raw_dx_3d = dx_3d.copy()
-            dx_3d = dx_3d - np.round(dx_3d)
-            dist_3d = np.sqrt((dx_3d ** 2).sum(axis=-1))
-            wraps_3d = np.any(np.abs(raw_dx_3d - dx_3d) > 0.5 * max_r_3d, axis=-1)
-            i3, j3 = np.where((dist_3d > 0) & (dist_3d < max_r_3d) & ~wraps_3d)
-            for i, j in zip(i3, j3):
-                if j > i:
-                    ax1.plot(
-                        [pos_all[i, 0], pos_all[j, 0]],
-                        [pos_all[i, 1], pos_all[j, 1]],
-                        [pos_all[i, 2], pos_all[j, 2]],
-                        color=cmap.color(0), linewidth=2, alpha=0.25, zorder=1,
-                    )
+            segments_3d = np.stack([pos_all[ei_fwd[0]], pos_all[ei_fwd[1]]], axis=1)
+            lc3d = Line3DCollection(segments_3d, colors=cmap.color(0), linewidths=0.5, alpha=0.2)
+            ax1.add_collection3d(lc3d)
             ax1.set_xlim([0, 1])
             ax1.set_ylim([0, 1])
             ax1.set_zlim([0, 1])
@@ -245,30 +255,27 @@ def load_from_data(
 
             ax2 = fig.add_subplot(122)
             z_center, z_thickness = 0.5, 0.1
-            z_vals = pos[t, :, 2]
-            mask = np.abs(z_vals - z_center) < z_thickness
-            pos_slice = pos[t, mask, :2]
+            z_vals = pos_all[:, 2]
+            z_mask = np.abs(z_vals - z_center) < z_thickness
+            pos_slice = pos_all[z_mask, :2]
             ax2.scatter(
                 pos_slice[:, 0], pos_slice[:, 1],
-                s=30, color=cmap.color(0), alpha=0.7, edgecolors="none", zorder=2,
+                s=15, color=cmap.color(0), alpha=0.7, edgecolors="none", zorder=2,
             )
-            # draw edges between cells within max_radius
-            max_r = sim.max_radius * 3
-            if len(pos_slice) > 0:
-                dx = pos_slice[:, None, :] - pos_slice[None, :, :]
-                raw_dx = dx.copy()
-                dx = dx - np.round(dx)  # minimum image
-                dist = np.sqrt((dx ** 2).sum(axis=-1))
-                # skip edges that wrap across periodic boundary
-                wraps = np.any(np.abs(raw_dx - dx) > 0.5 * max_r, axis=-1)
-                i_idx, j_idx = np.where((dist > 0) & (dist < max_r) & ~wraps)
-                for i, j in zip(i_idx, j_idx):
-                    if j > i:
-                        ax2.plot(
-                            [pos_slice[i, 0], pos_slice[j, 0]],
-                            [pos_slice[i, 1], pos_slice[j, 1]],
-                            color=cmap.color(0), linewidth=2, alpha=0.25, zorder=1,
-                        )
+            # filter edges to those within z-slice
+            slice_set = set(np.where(z_mask)[0].tolist())
+            slice_mask = np.array([ei_fwd[0, k] in slice_set and ei_fwd[1, k] in slice_set
+                                   for k in range(ei_fwd.shape[1])])
+            if slice_mask.any():
+                # remap global indices to slice-local indices
+                global_to_local = np.full(len(pos_all), -1, dtype=int)
+                global_to_local[z_mask] = np.arange(z_mask.sum())
+                ei_slice = ei_fwd[:, slice_mask]
+                src_local = global_to_local[ei_slice[0]]
+                dst_local = global_to_local[ei_slice[1]]
+                segments_2d = np.stack([pos_slice[src_local], pos_slice[dst_local]], axis=1)
+                lc2d = LineCollection(segments_2d, colors=cmap.color(0), linewidths=0.5, alpha=0.2)
+                ax2.add_collection(lc2d)
             ax2.set_xlim([0, 1])
             ax2.set_ylim([0, 1])
             default_style.xlabel(ax2, "X")
@@ -281,7 +288,7 @@ def load_from_data(
 
             plt.tight_layout()
             num = f"{t:06}"
-            default_style.savefig(fig, f"graphs_data/{dataset_name}/Fig/Fig_{run}_{num}.tif")
+            default_style.savefig(fig, f"graphs_data/{dataset_name}/Fig/Fig_{run}_{num}.png")
 
     n_written = x_writer.finalize()
     y_writer.finalize()

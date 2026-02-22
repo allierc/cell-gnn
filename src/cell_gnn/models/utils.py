@@ -83,9 +83,7 @@ def get_type_list(x, dimension):
     from cell_gnn.cell_state import CellState
     if isinstance(x, CellState):
         return x.cell_type.clone().detach().unsqueeze(-1).float()
-    type_col = 1 + 2 * dimension
-    type_list = x[:, type_col:type_col + 1].clone().detach()
-    return type_list
+    return CellState.from_packed(x, dimension).cell_type.clone().detach().unsqueeze(-1).float()
 
 
 def constant_batch_size(batch_size):

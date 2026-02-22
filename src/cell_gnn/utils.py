@@ -139,9 +139,7 @@ def norm_velocity(x, dimension, device):
     if isinstance(x, CellState):
         vel = x.vel
     else:
-        vel_start = 1 + dimension
-        vel_end = 1 + 2 * dimension
-        vel = x[:, vel_start:vel_end]
+        vel = CellState.from_packed(x, dimension).vel
 
     vx = torch.std(vel[:, 0])
 
@@ -185,7 +183,7 @@ def norm_position(x, dimension, device):
     if isinstance(x, CellState):
         pos = x.pos
     else:
-        pos = x[:, 1:1 + dimension]
+        pos = CellState.from_packed(x, dimension).pos
 
     if dimension == 2:
         bounding_box = get_2d_bounding_box(pos * 1.1)
@@ -419,8 +417,7 @@ def get_index_cells(x, n_cell_types, dimension):
     if isinstance(x, CellState):
         ptype = x.cell_type
     else:
-        type_col = 1 + 2 * dimension
-        ptype = x[:, type_col]
+        ptype = CellState.from_packed(x, dimension).cell_type
 
     index_cells = []
     for n in range(n_cell_types):
@@ -459,7 +456,7 @@ def edges_radius_blockwise(
     if isinstance(x, CellState):
         pos = x.pos
     else:
-        pos = x[:, 1:dimension+1]
+        pos = CellState.from_packed(x, dimension).pos
     device = pos.device
     N = pos.shape[0]
     min2 = float(min_radius * min_radius)
