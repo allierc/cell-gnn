@@ -365,6 +365,10 @@ def data_train_cell(config, erase, best_model, device):
             total_loss_regul += regularizer.get_iteration_total()
             pbar.set_postfix(loss=f'{loss.item() / n_cells:.6f}')
 
+            if (N + 1) % 1000 == 0:
+                avg_loss = total_loss / (N + 1) / n_cells
+                logger.info(f'Epoch {epoch}  iter {N + 1}  avg loss: {avg_loss:.6f}')
+
             if (N % plot_frequency == 0) or (N == 0):
                 loss_dict['loss'].append(loss.item() / n_cells)
 
@@ -1243,6 +1247,10 @@ def data_train_cell_field(config, erase, best_model, device):
             total_loss += loss.item()
             total_loss_regul += regularizer.get_iteration_total()
             pbar.set_postfix(loss=f'{loss.item() / n_cells:.6f}')
+
+            if (N + 1) % 1000 == 0:
+                avg_loss = total_loss / (N + 1) / n_cells
+                logger.info(f'Epoch {epoch}  iter {N + 1}  avg loss: {avg_loss:.6f}')
 
             if (N % plot_frequency == 0) or (N == 0):
                 loss_dict['loss'].append(loss.item() / n_cells)
