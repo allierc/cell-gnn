@@ -22,6 +22,7 @@ dependencies = [
     "prettytable",
     "tifffile",
     "seaborn",
+    "optuna>=3.0",
 ]
 
 [tool.setuptools.packages.find]

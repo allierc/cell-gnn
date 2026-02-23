@@ -141,40 +141,42 @@ def _generate_video(gt_np, pred_np, pos_data, field_name, n_frames, n_components
         print('  ffmpeg not found – skipping video generation')
         return None
 
+    n_cells = gt_np.shape[1]
     video_frames_dir = os.path.join(output_folder, 'video_frames')
     os.makedirs(video_frames_dir, exist_ok=True)
     for f in glob.glob(f'{video_frames_dir}/*.png'):
         os.remove(f)
 
-    # Compute field magnitude for colouring
-    if n_components > 1:
-        gt_mag = np.linalg.norm(gt_np, axis=2)       # (T, N)
-        pred_mag = np.linalg.norm(pred_np, axis=2)
-    else:
-        gt_mag = gt_np[:, :, 0]
-        pred_mag = pred_np[:, :, 0]
-
-    vmin = np.percentile(gt_mag, 2)
-    vmax = np.percentile(gt_mag, 98)
+    q_step = max(1, n_cells // 500)
 
     frame_indices = range(0, n_frames, step_video)
     for frame_count, k in enumerate(frame_indices):
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4.5))
 
         pos = pos_data[k]  # (N, dim)
-        x, y = pos[:, 0], pos[:, 1]
+        x, y = pos[::q_step, 0], pos[::q_step, 1]
 
-        sc1 = ax1.scatter(x, y, c=gt_mag[k], s=1, cmap='viridis', vmin=vmin, vmax=vmax)
+        gt_k = gt_np[k]
+        pred_k = pred_np[k]
+
+        if n_components >= 2:
+            mag_gt = np.sqrt((gt_k ** 2).sum(axis=-1))
+            mag_pred = np.sqrt((pred_k ** 2).sum(axis=-1))
+            ax1.quiver(x, y, gt_k[::q_step, 0], gt_k[::q_step, 1],
+                       mag_gt[::q_step], cmap='coolwarm', alpha=1.0)
+            ax2.quiver(x, y, pred_k[::q_step, 0], pred_k[::q_step, 1],
+                       mag_pred[::q_step], cmap='coolwarm', alpha=1.0)
+        else:
+            ax1.scatter(x, y, c=gt_k[::q_step, 0], cmap='coolwarm', s=5, alpha=1.0)
+            ax2.scatter(x, y, c=pred_k[::q_step, 0], cmap='coolwarm', s=5, alpha=1.0)
+
+        for ax in (ax1, ax2):
+            ax.set_xlim([0, 1]); ax.set_ylim([0, 1])
+            ax.set_aspect('equal')
+            ax.set_xticks([]); ax.set_yticks([])
+
         ax1.set_title(f'GT  frame {k}', fontsize=10)
-        ax1.set_aspect('equal')
-        ax1.set_xticks([]); ax1.set_yticks([])
-        plt.colorbar(sc1, ax=ax1)
-
-        sc2 = ax2.scatter(x, y, c=pred_mag[k], s=1, cmap='viridis', vmin=vmin, vmax=vmax)
         ax2.set_title(f'Pred  frame {k}', fontsize=10)
-        ax2.set_aspect('equal')
-        ax2.set_xticks([]); ax2.set_yticks([])
-        plt.colorbar(sc2, ax=ax2)
 
         fig.suptitle(f'{field_name}  ({frame_count + 1}/{len(frame_indices)})', fontsize=11)
         plt.tight_layout()
@@ -425,15 +427,13 @@ def data_train_INR(config, device, field_name=None, run=0, erase=False):
     np.save(os.path.join(output_folder, f'gt_{field_name}.npy'), gt_np)
 
     # --- final visualizations ---
-    from cell_gnn.plot_inr import plot_inr_training_summary, plot_inr_kinograph
+    from cell_gnn.plot_inr import plot_inr_training_summary
 
     plot_inr_training_summary(
         loss_list, gt_np, pred_np, pos_data,
         field_name, inr_type.value, total_steps, n_frames, n_cells,
         n_components, output_folder, gradient_mode=gradient_mode
     )
-
-    plot_inr_kinograph(gt_np, pred_np, field_name, n_components, n_cells, output_folder)
 
     # --- post-training video (GT vs Pred, every 10 frames) ---
     _generate_video(gt_np, pred_np, pos_data, field_name, n_frames, n_components,

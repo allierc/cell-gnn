@@ -41,7 +41,7 @@ inr:
   hidden_dim_inr: 256
   n_layers_inr: 5
   omega_inr: 80.0
-  inr_total_steps: 100000
+  inr_total_steps: 500000
   inr_batch_size: 8
   inr_learning_rate: 1.0e-5
   inr_xy_period: 1.0
@@ -55,7 +55,7 @@ training:
   small_init_batch_size: False
   sparsity: "none"
   rotation_augmentation: True
-  data_augmentation_loop: 75
+  data_augmentation_loop: 20
   learning_rate_start: 1.0E-4
   learning_rate_embedding_start: 1.0E-5
 

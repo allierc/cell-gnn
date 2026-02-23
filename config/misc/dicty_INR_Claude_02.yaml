@@ -1,0 +1,68 @@
+description: INR exploration by Claude (parallel)
+dataset: dicty
+data_folder_name: cell3d_overdamped_N1000_T20_L2_position_pairforce_k250.npz
+simulation:
+  dimension: 3
+  n_cells: 1000
+  n_cell_types: 1
+  n_frames: 10000
+  delta_t: 0.002
+  max_radius: 0.2
+  min_radius: 0
+  sigma: 0.005
+  boundary: periodic
+  dpos_init: 0
+  cell_params:
+  - - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+  func_params:
+  - - arbitrary
+    - 0
+    - 0
+graph_model:
+  cell_model_name: arbitrary_ode
+  mesh_model_name: ''
+  prediction: first_derivative
+  input_size: 6
+  output_size: 3
+  hidden_dim: 128
+  n_layers: 5
+  aggr_type: mean
+  embedding_dim: 2
+  update_type: none
+plotting:
+  colormap: tab10
+  arrow_length: 2
+  xlim:
+  - 0
+  - 0.2
+  invert_mlp1_sign: true
+inr:
+  inr_field_name: velocity
+  inr_type: siren_txyz
+  inr_gradient_mode: false
+  hidden_dim_inr: 640
+  n_layers_inr: 4
+  omega_inr: 5.0
+  inr_total_steps: 300000
+  inr_batch_size: 8
+  inr_learning_rate: 2.0e-04
+  inr_xy_period: 1.0
+  inr_t_period: 1.0
+training:
+  n_runs: 1
+  device: auto
+  n_epochs: 4
+  batch_size: 8
+  small_init_batch_size: false
+  sparsity: none
+  rotation_augmentation: true
+  data_augmentation_loop: 20
+  learning_rate_start: 0.0001
+  learning_rate_embedding_start: 1.0e-05
+claude:
+  n_iter_block: 24
+  ucb_c: 1.414
+  node_name: a100
