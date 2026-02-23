@@ -238,7 +238,7 @@ def data_train_cell(config, erase, best_model, device):
                     x_state.field = model_f(time=k / n_frames) ** 2
                 x = x_state.to_packed()
 
-                edges = edges_radius_blockwise(x_state, dimension, bc_dpos, min_radius, max_radius, block=4096)
+                edges = edges_radius_blockwise(x_state.pos, bc_dpos, min_radius, max_radius, block=4096)
 
                 if batch_ratio < 1:
                     ids = np.random.permutation(x.shape[0])[:int(x.shape[0] * batch_ratio)]
@@ -710,7 +710,7 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
         # update calculations
         with torch.no_grad():
 
-            edge_index = edges_radius_blockwise(x, dimension, bc_dpos, min_radius, max_radius, block=4096)
+            edge_index = edges_radius_blockwise(x.pos, bc_dpos, min_radius, max_radius, block=4096)
 
             if has_field:
                 field = model_f(time=it / n_frames) ** 2
@@ -996,7 +996,7 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
             x0 = x_ts.frame(it).to(device)
             y_gt = y_raw[it].clone().detach()
 
-            edge_index = edges_radius_blockwise(x0, dimension, bc_dpos, min_radius, max_radius, block=4096)
+            edge_index = edges_radius_blockwise(x0.pos, bc_dpos, min_radius, max_radius, block=4096)
 
             if config.training.shared_embedding:
                 data_id = torch.ones((n_cells, 1), dtype=torch.int, device=device)
@@ -1024,7 +1024,6 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
     residual_writer.finalize()
 
     residual_mag = np.sqrt((residual_arr ** 2).sum(axis=-1))
-    logger.info(f'Residual field: mean magnitude = {residual_mag.mean():.6f}, max = {residual_mag.max():.6f}')
     print(f'Residual field: mean magnitude = {residual_mag.mean():.6f}, max = {residual_mag.max():.6f}')
     print(f'Saved to graphs_data/{dataset_name}/residual_list_{run}.zarr')
 

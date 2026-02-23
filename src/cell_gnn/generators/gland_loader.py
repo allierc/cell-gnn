@@ -12,6 +12,8 @@ Source pipeline: GNN_analysis_Claude_Code (decomp-GNN tissue analysis)
 
 import os
 import re
+import sys
+import time
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -19,12 +21,12 @@ import numpy as np
 import pandas as pd
 import torch
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
-from scipy.spatial import cKDTree
 from tqdm import trange
 
 from cell_gnn.cell_state import CellState
 from cell_gnn.figure_style import default_style
-from cell_gnn.zarr_io import ZarrSimulationWriterV3, save_edge_index
+from cell_gnn.utils import choose_boundary_values, edges_radius_blockwise
+from cell_gnn.zarr_io import ZarrSimulationWriterV3, ZarrArrayWriter, save_edge_index
 
 
 # ---------------------------------------------------------------------------
@@ -156,7 +158,7 @@ def load_tracks(root_dir):
 # ---------------------------------------------------------------------------
 
 def compute_velocities(frame_data, sorted_timepoints, tracks, dt=DT_MINUTES):
-    """Compute per-cell velocities via finite difference of tracked positions.
+    """Compute per-cell velocities via vectorized pandas groupby diff.
 
     Returns:
         dict[int, dict[int, np.ndarray]]:
@@ -167,91 +169,85 @@ def compute_velocities(frame_data, sorted_timepoints, tracks, dt=DT_MINUTES):
     if tracks is None:
         return vel_data
 
-    # build lookup: (timepoint, label) -> (x, y, z)
-    pos_lookup = {}
+    # concatenate all frames into one DataFrame with timepoint column
+    frames = []
     for t in sorted_timepoints:
-        df = frame_data[t]
-        for _, row in df.iterrows():
-            pos_lookup[(t, int(row['label']))] = np.array([
-                row['centroid_x'], row['centroid_y'], row['centroid_z']
-            ])
+        df = frame_data[t][['label', 'centroid_x', 'centroid_y', 'centroid_z']].copy()
+        df['timepoint'] = t
+        frames.append(df)
+    all_data = pd.concat(frames, ignore_index=True)
 
-    # group tracks by track_id
-    track_groups = tracks.groupby('track_id')
-    for track_id, group in track_groups:
-        group_sorted = group.sort_values('timepoint')
-        tps = group_sorted['timepoint'].values
-        labels = group_sorted['label'].values
+    # merge track_id into position data
+    all_data = all_data.merge(
+        tracks[['track_id', 'timepoint', 'label']],
+        on=['timepoint', 'label'], how='left',
+    )
 
-        for i in range(len(tps)):
-            t = int(tps[i])
-            label = int(labels[i])
+    n_tracked = all_data['track_id'].notna().sum()
+    print(f"  tracking coverage: {n_tracked}/{len(all_data)} "
+          f"({100 * n_tracked / len(all_data):.1f}%)")
 
-            # forward difference
-            if i + 1 < len(tps):
-                t_next = int(tps[i + 1])
-                label_next = int(labels[i + 1])
-                key_now = (t, label)
-                key_next = (t_next, label_next)
-                if key_now in pos_lookup and key_next in pos_lookup:
-                    dp = pos_lookup[key_next] - pos_lookup[key_now]
-                    dt_actual = (t_next - t) * dt
-                    if dt_actual > 0:
-                        vel_data[t][label] = dp / dt_actual
-                        continue
+    # sort by track and time, then vectorized forward diff
+    all_data = all_data.sort_values(['track_id', 'timepoint']).reset_index(drop=True)
+    pos_cols = ['centroid_x', 'centroid_y', 'centroid_z']
+    for pc in pos_cols:
+        all_data['v_' + pc] = all_data.groupby('track_id')[pc].diff() / dt
 
-            # backward difference fallback
-            if i - 1 >= 0:
-                t_prev = int(tps[i - 1])
-                label_prev = int(labels[i - 1])
-                key_now = (t, label)
-                key_prev = (t_prev, label_prev)
-                if key_now in pos_lookup and key_prev in pos_lookup:
-                    dp = pos_lookup[key_now] - pos_lookup[key_prev]
-                    dt_actual = (t - t_prev) * dt
-                    if dt_actual > 0:
-                        vel_data[t][label] = dp / dt_actual
+    # backfill first timepoint of each track, fill untracked with 0
+    vel_cols = ['v_centroid_x', 'v_centroid_y', 'v_centroid_z']
+    for vc in vel_cols:
+        all_data[vc] = all_data.groupby('track_id')[vc].bfill()
+        all_data[vc] = all_data[vc].fillna(0.0)
+
+    # convert to dict for fast per-frame lookup (vectorized groupby)
+    vel_arr = all_data[vel_cols].values
+    tp_arr = all_data['timepoint'].values.astype(int)
+    lab_arr = all_data['label'].values.astype(int)
+    for t in sorted_timepoints:
+        mask = tp_arr == t
+        labels_t = lab_arr[mask]
+        vels_t = vel_arr[mask]
+        vel_data[t] = {int(lab): vels_t[i] for i, lab in enumerate(labels_t)}
 
     return vel_data
 
 
 # ---------------------------------------------------------------------------
-# kNN graph construction
+# Radius graph construction (blockwise, consistent with graph_trainer)
 # ---------------------------------------------------------------------------
 
-def build_knn_edge_index(positions, k=15):
-    """Build bidirectional kNN graph using scipy cKDTree.
+def build_radius_edge_index(positions, max_radius, min_radius=0.0,
+                            bc_dpos=None, device='cpu'):
+    """Build bidirectional radius graph using blockwise method from utils.
 
     Args:
-        positions: (N, 3) numpy array
-        k: number of nearest neighbors
+        positions: (N, 3) numpy array (normalized coordinates)
+        max_radius: maximum connection radius
+        min_radius: minimum connection radius
+        bc_dpos: boundary condition function (identity for 'no' boundary)
+        device: torch device
 
     Returns:
         (2, E) long tensor, bidirectional
     """
-    tree = cKDTree(positions)
-    k_query = min(k + 1, len(positions))  # +1 because query includes self
-    _, indices = tree.query(positions, k=k_query)
+    if bc_dpos is None:
+        bc_dpos = lambda x: x
 
-    src_list = []
-    dst_list = []
-    for i in range(len(positions)):
-        for j in range(k_query):
-            neighbor = indices[i, j]
-            if neighbor != i:
-                src_list.append(i)
-                dst_list.append(neighbor)
-
-    edge_index = torch.tensor([src_list, dst_list], dtype=torch.long)
-    return edge_index
+    pos_t = torch.from_numpy(positions).float().to(device)
+    edge_index = edges_radius_blockwise(
+        pos_t, bc_dpos=bc_dpos,
+        min_radius=min_radius, max_radius=max_radius, block=4096,
+    )
+    return edge_index.cpu()
 
 
 # ---------------------------------------------------------------------------
 # Visualization — dot + edge scatter plot (fixed bounding box)
 # ---------------------------------------------------------------------------
 
-def _plot_gland_frame(pos, edge_index, t_idx, run, dataset_name, plot_bounds):
-    """3D scatter plot of cell positions with kNN edges, fixed bounding box."""
+def _plot_gland_frame(pos, edge_index, t_idx, run, dataset_name, plot_bounds,
+                      max_plot_edges=50_000):
+    """3D scatter plot of cell positions with radius edges, fixed bounding box."""
     fig = plt.figure(figsize=(16, 14), facecolor=default_style.background)
     ax = fig.add_subplot(111, projection='3d')
 
@@ -266,18 +262,23 @@ def _plot_gland_frame(pos, edge_index, t_idx, run, dataset_name, plot_bounds):
         depthshade=True,
     )
 
-    # kNN edges
+    # edges (subsample if too many for matplotlib)
     if edge_index is not None and edge_index.shape[1] > 0:
         ei = edge_index.numpy() if isinstance(edge_index, torch.Tensor) else edge_index
-        segments = []
-        for e in range(ei.shape[1]):
-            src, dst = ei[0, e], ei[1, e]
-            if src < len(pos) and dst < len(pos):
-                p0 = pos[src]
-                p1 = pos[dst]
-                if not (np.isnan(p0).any() or np.isnan(p1).any()):
-                    segments.append([p0, p1])
-        if segments:
+        n_edges = ei.shape[1]
+        # only draw forward edges (src < dst) to avoid double-drawing
+        fwd = ei[0] < ei[1]
+        ei = ei[:, fwd]
+        # subsample if still too many
+        if ei.shape[1] > max_plot_edges:
+            idx = np.random.choice(ei.shape[1], max_plot_edges, replace=False)
+            ei = ei[:, idx]
+        # vectorized segment building
+        src_pos = pos[ei[0]]
+        dst_pos = pos[ei[1]]
+        valid_edges = ~(np.isnan(src_pos).any(axis=1) | np.isnan(dst_pos).any(axis=1))
+        segments = np.stack([src_pos[valid_edges], dst_pos[valid_edges]], axis=1)
+        if len(segments) > 0:
             lc = Line3DCollection(
                 segments, colors='#888888', linewidths=0.3, alpha=0.3,
             )
@@ -292,7 +293,8 @@ def _plot_gland_frame(pos, edge_index, t_idx, run, dataset_name, plot_bounds):
     default_style.xlabel(ax, 'X')
     default_style.ylabel(ax, 'Y')
     ax.set_zlabel('Z', fontsize=default_style.label_font_size, color=default_style.foreground)
-    ax.set_title(f'Gland frame {t_idx} ({n_cells} cells)',
+    n_total_edges = edge_index.shape[1] if edge_index is not None else 0
+    ax.set_title(f'Gland frame {t_idx} ({n_cells} cells, {n_total_edges} edges)',
                  fontsize=default_style.font_size, color=default_style.foreground)
 
     default_style.savefig(fig, f"graphs_data/{dataset_name}/Fig/Fig_{run}_{t_idx:06d}.png")
@@ -359,6 +361,15 @@ def load_from_gland(
     n_field_features = len(available_field_cols)
     print(f"  field features ({n_field_features}): {available_field_cols}")
 
+    # radius graph parameters
+    max_radius = config.simulation.max_radius
+    min_radius = config.simulation.min_radius
+    _, bc_dpos = choose_boundary_values(config.simulation.boundary)
+    print(f"  radius graph: max_radius={max_radius}, min_radius={min_radius}",
+          flush=True)
+    sys.stdout.flush()
+    time.sleep(1)
+
     # ---- build padded arrays ----
     pos_frames = np.full((n_frames, max_n, dimension), np.nan, dtype=np.float32)
     vel_frames = np.full((n_frames, max_n, dimension), np.nan, dtype=np.float32)
@@ -381,7 +392,8 @@ def load_from_gland(
     run = 0
     run_path = f"graphs_data/{dataset_name}/x_list_{run}"
 
-    for t_idx in trange(n_frames, ncols=100, desc="  processing Gland"):
+    trange_obj = trange(n_frames, ncols=150, desc="  processing Gland")
+    for t_idx in trange_obj:
         t = sorted_timepoints[t_idx]
         df = frame_data[t]
         n_cells = len(df)
@@ -404,10 +416,17 @@ def load_from_gland(
                     df[col].values.astype(np.float32)
                 )
 
-        # kNN edge index
-        k = 15
-        ei = build_knn_edge_index(norm_pos, k=min(k, n_cells - 1))
+        # radius edge index (blockwise, same method as graph_trainer)
+        ei = build_radius_edge_index(
+            norm_pos, max_radius=max_radius, min_radius=min_radius,
+            bc_dpos=bc_dpos,
+        )
         edge_index_list.append(ei)
+        if t_idx == 0:
+            trange_obj.set_postfix_str(
+                f"{n_cells} cells, {ei.shape[1]} edges "
+                f"({ei.shape[1] // max(n_cells, 1)} edges/cell)"
+            )
 
         # visualization (every `step` frames)
         if visualize and t_idx % step == 0:
@@ -424,6 +443,12 @@ def load_from_gland(
         path=run_path,
         n_cells=max_n,
         dimension=dimension,
+        time_chunks=min(2000, n_frames),
+    )
+    y_writer = ZarrArrayWriter(
+        path=f"graphs_data/{dataset_name}/y_list_{run}",
+        n_cells=max_n,
+        n_features=dimension,
         time_chunks=min(2000, n_frames),
     )
 
@@ -445,11 +470,15 @@ def load_from_gland(
         )
         x_writer.append_state(state)
 
+        # training target: velocity (first_derivative prediction)
+        y_writer.append(vel_t_clean)
+
     n_written = x_writer.finalize()
-    print(f"  wrote {n_written} frames to zarr")
+    y_writer.finalize()
+    print(f"  wrote {n_written} frames to zarr (x_list + y_list)")
 
     # save edge_index
     save_edge_index(run_path, edge_index_list)
-    print(f"  saved edge_index.pt ({len(edge_index_list)} frames, kNN)")
+    print(f"  saved edge_index.pt ({len(edge_index_list)} frames, radius={max_radius})")
 
     print(f"\n=== Done loading Gland data ===")

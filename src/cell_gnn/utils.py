@@ -1,6 +1,7 @@
 import glob
 import logging
 import os
+import shutil
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -326,7 +327,10 @@ def create_log_dir(config=[], erase=True):
         files = glob.glob(f"{log_dir}/results/*")
         for f in files:
             if ('all' not in f) & ('field' not in f):
-                os.remove(f)
+                if os.path.isdir(f):
+                    shutil.rmtree(f)
+                else:
+                    os.remove(f)
         files = glob.glob(f"{log_dir}/tmp_training/cell/*")
         for f in files:
             os.remove(f)
@@ -436,8 +440,7 @@ def get_equidistant_points(n_points=1024):
 
 
 def edges_radius_blockwise(
-    x,
-    dimension,
+    pos,
     bc_dpos,
     min_radius,
     max_radius,
@@ -449,14 +452,20 @@ def edges_radius_blockwise(
     min_radius < dist(i,j) < max_radius, using blockwise computation to avoid OOM.
     Uses j>i to compute each pair once, then mirrors.
 
+    Args:
+        pos: (N, dim) position tensor
+        bc_dpos: boundary condition displacement function
+        min_radius: minimum edge distance
+        max_radius: maximum edge distance
+        block: block size for blockwise computation
+        include_self: whether to include self-edges
+
     Returns:
-        edge_index: LongTensor of shape [2, E] on the same device as x
+        edge_index: LongTensor of shape [2, E] on the same device as pos
     """
     from cell_gnn.cell_state import CellState
-    if isinstance(x, CellState):
-        pos = x.pos
-    else:
-        pos = CellState.from_packed(x, dimension).pos
+    if isinstance(pos, CellState):
+        pos = pos.pos
     device = pos.device
     N = pos.shape[0]
     min2 = float(min_radius * min_radius)
@@ -515,12 +524,11 @@ class NeighborCache:
 def build_edge_list_blockwise(pos, bc_dpos, r_list, min_radius=0.0, block=2048):
     # Use edges_radius_blockwise with max_radius=r_list
     edge_list = edges_radius_blockwise(
-        x=torch.cat([torch.zeros((pos.shape[0],1), device=pos.device), pos], dim=1), # dummy to match signature
-        dimension=pos.shape[1],
+        pos=pos,
         bc_dpos=bc_dpos,
         min_radius=min_radius,
         max_radius=r_list,
-        block=block
+        block=block,
     )
     return edge_list
 

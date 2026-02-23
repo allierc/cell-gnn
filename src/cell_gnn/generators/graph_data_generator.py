@@ -206,6 +206,7 @@ def load_from_data(
 
     cell_type = torch.zeros(n_cells, dtype=torch.long)
     _, bc_dpos = choose_boundary_values(sim.boundary)
+    edge_counts_per_frame = []
 
     for t in trange(n_frames_total, ncols=100):
         state = CellState(
@@ -217,82 +218,97 @@ def load_from_data(
         x_writer.append_state(state)
         y_writer.append(FPAIR[t].astype(np.float32))
 
-        # 3D scatter plot
-        if visualize and (t % step == 0) and dimension == 3:
-            from mpl_toolkits.mplot3d.art3d import Line3DCollection
-            from matplotlib.collections import LineCollection
+        # collect edge stats every frame
+        edge_index = edges_radius_blockwise(
+            state.pos, bc_dpos, sim.min_radius, sim.max_radius, block=4096)
+        n_edges = edge_index.shape[1] // 2
+        degree = torch.zeros(n_cells, dtype=torch.long)
+        degree.scatter_add_(0, edge_index[0], torch.ones(edge_index.shape[1], dtype=torch.long))
+        edge_counts_per_frame.append({
+            'n_edges': n_edges,
+            'degree_min': int(degree.min()),
+            'degree_max': int(degree.max()),
+            'degree_mean': float(degree.float().mean()),
+        })
 
-            # build edges using blockwise radius (same method as training)
-            edge_index = edges_radius_blockwise(
-                state, dimension, bc_dpos, sim.min_radius, sim.max_radius, block=4096)
-            ei_np = to_numpy(edge_index)
-            # forward edges only (src < dst)
-            fwd = ei_np[0] < ei_np[1]
-            ei_fwd = ei_np[:, fwd]
-            max_plot_edges = 5000
-            if ei_fwd.shape[1] > max_plot_edges:
-                idx_sub = np.random.choice(ei_fwd.shape[1], max_plot_edges, replace=False)
-                ei_fwd = ei_fwd[:, idx_sub]
+        # 3D plot with edges
+        if visualize and (t % step == 0):
+            if dimension == 3:
+                from mpl_toolkits.mplot3d.art3d import Line3DCollection
+                from matplotlib.collections import LineCollection
 
-            fig = plt.figure(figsize=(12, 6), facecolor=default_style.background)
-            pos_all = pos[t]  # (N, 3)
+                ei_np = to_numpy(edge_index)
+                pos_all = pos[t]
+                fwd = ei_np[0] < ei_np[1]
+                ei_fwd = ei_np[:, fwd]
+                dx = pos_all[ei_fwd[1]] - pos_all[ei_fwd[0]]
+                no_wrap = np.sqrt((dx ** 2).sum(axis=1)) < sim.max_radius * 1.1
+                ei_fwd = ei_fwd[:, no_wrap]
 
-            ax1 = fig.add_subplot(121, projection="3d")
-            ax1.scatter(
-                pos_all[:, 0], pos_all[:, 1], pos_all[:, 2],
-                s=10, color=cmap.color(0), alpha=0.5, edgecolors="none", zorder=2,
-            )
-            segments_3d = np.stack([pos_all[ei_fwd[0]], pos_all[ei_fwd[1]]], axis=1)
-            lc3d = Line3DCollection(segments_3d, colors=cmap.color(0), linewidths=0.5, alpha=0.2)
-            ax1.add_collection3d(lc3d)
-            ax1.set_xlim([0, 1])
-            ax1.set_ylim([0, 1])
-            ax1.set_zlim([0, 1])
-            default_style.xlabel(ax1, "X")
-            default_style.ylabel(ax1, "Y")
-            ax1.set_zlabel("Z", fontsize=default_style.label_font_size, color=default_style.foreground)
-            ax1.set_title(f"frame {t}", fontsize=default_style.font_size, color=default_style.foreground)
+                fig = plt.figure(figsize=(12, 6), facecolor=default_style.background)
 
-            ax2 = fig.add_subplot(122)
-            z_center, z_thickness = 0.5, 0.1
-            z_vals = pos_all[:, 2]
-            z_mask = np.abs(z_vals - z_center) < z_thickness
-            pos_slice = pos_all[z_mask, :2]
-            ax2.scatter(
-                pos_slice[:, 0], pos_slice[:, 1],
-                s=15, color=cmap.color(0), alpha=0.7, edgecolors="none", zorder=2,
-            )
-            # filter edges to those within z-slice
-            slice_set = set(np.where(z_mask)[0].tolist())
-            slice_mask = np.array([ei_fwd[0, k] in slice_set and ei_fwd[1, k] in slice_set
-                                   for k in range(ei_fwd.shape[1])])
-            if slice_mask.any():
-                # remap global indices to slice-local indices
-                global_to_local = np.full(len(pos_all), -1, dtype=int)
-                global_to_local[z_mask] = np.arange(z_mask.sum())
-                ei_slice = ei_fwd[:, slice_mask]
-                src_local = global_to_local[ei_slice[0]]
-                dst_local = global_to_local[ei_slice[1]]
-                segments_2d = np.stack([pos_slice[src_local], pos_slice[dst_local]], axis=1)
-                lc2d = LineCollection(segments_2d, colors=cmap.color(0), linewidths=0.5, alpha=0.2)
-                ax2.add_collection(lc2d)
-            ax2.set_xlim([0, 1])
-            ax2.set_ylim([0, 1])
-            default_style.xlabel(ax2, "X")
-            default_style.ylabel(ax2, "Y")
-            ax2.set_title(
-                f"Z cross-section ({z_center - z_thickness:.1f} < z < {z_center + z_thickness:.1f})",
-                fontsize=default_style.font_size, color=default_style.foreground,
-            )
-            ax2.set_aspect("equal")
+                ax1 = fig.add_subplot(121, projection="3d")
+                ax1.scatter(
+                    pos_all[:, 0], pos_all[:, 1], pos_all[:, 2],
+                    s=10, color=cmap.color(0), alpha=0.5, edgecolors="none", zorder=2,
+                )
+                segments_3d = np.stack([pos_all[ei_fwd[0]], pos_all[ei_fwd[1]]], axis=1)
+                lc3d = Line3DCollection(segments_3d, colors='#888888', linewidths=0.5, alpha=0.2)
+                ax1.add_collection3d(lc3d)
+                ax1.set_xlim([0, 1])
+                ax1.set_ylim([0, 1])
+                ax1.set_zlim([0, 1])
+                default_style.xlabel(ax1, "X")
+                default_style.ylabel(ax1, "Y")
+                ax1.set_zlabel("Z", fontsize=default_style.label_font_size, color=default_style.foreground)
+                ax1.set_title(f"frame {t}", fontsize=default_style.font_size, color=default_style.foreground)
 
-            plt.tight_layout()
-            num = f"{t:06}"
-            default_style.savefig(fig, f"graphs_data/{dataset_name}/Fig/Fig_{run}_{num}.png")
+                ax2 = fig.add_subplot(122)
+                z_center, z_thickness = 0.5, sim.max_radius / 2
+                z_vals = pos_all[:, 2]
+                z_mask = np.abs(z_vals - z_center) < z_thickness
+                pos_slice = pos_all[z_mask, :2]
+                ax2.scatter(
+                    pos_slice[:, 0], pos_slice[:, 1],
+                    s=15, color=cmap.color(0), alpha=0.7, edgecolors="none", zorder=2,
+                )
+                slice_set = set(np.where(z_mask)[0].tolist())
+                slice_mask = np.array([ei_fwd[0, k] in slice_set and ei_fwd[1, k] in slice_set
+                                       for k in range(ei_fwd.shape[1])])
+                if slice_mask.any():
+                    global_to_local = np.full(len(pos_all), -1, dtype=int)
+                    global_to_local[z_mask] = np.arange(z_mask.sum())
+                    ei_slice = ei_fwd[:, slice_mask]
+                    src_local = global_to_local[ei_slice[0]]
+                    dst_local = global_to_local[ei_slice[1]]
+                    segments_2d = np.stack([pos_slice[src_local], pos_slice[dst_local]], axis=1)
+                    lc2d = LineCollection(segments_2d, colors='#888888', linewidths=0.5, alpha=0.2)
+                    ax2.add_collection(lc2d)
+                ax2.set_xlim([0, 1])
+                ax2.set_ylim([0, 1])
+                default_style.xlabel(ax2, "X")
+                default_style.ylabel(ax2, "Y")
+                ax2.set_title(
+                    f"Z cross-section ({z_center - z_thickness:.1f} < z < {z_center + z_thickness:.1f})",
+                    fontsize=default_style.font_size, color=default_style.foreground,
+                )
+                ax2.set_aspect("equal")
+
+                plt.tight_layout()
+                num = f"{t:06}"
+                default_style.savefig(fig, f"graphs_data/{dataset_name}/Fig/Fig_{run}_{num}.png")
 
     n_written = x_writer.finalize()
     y_writer.finalize()
     print(f"loaded {n_written} frames from {data_file} (saved as .zarr)")
+
+    if edge_counts_per_frame:
+        edges_arr = np.array([s['n_edges'] for s in edge_counts_per_frame])
+        deg_min_arr = np.array([s['degree_min'] for s in edge_counts_per_frame])
+        deg_max_arr = np.array([s['degree_max'] for s in edge_counts_per_frame])
+        deg_mean_arr = np.array([s['degree_mean'] for s in edge_counts_per_frame])
+        print(f"edges per frame: min={edges_arr.min()} max={edges_arr.max()} mean={edges_arr.mean():.0f}")
+        print(f"degree per cell: min={deg_min_arr.min()} max={deg_max_arr.max()} mean={deg_mean_arr.mean():.1f}")
 
 
 def data_generate_cell(
@@ -393,6 +409,8 @@ def data_generate_cell(
     x = init_cellstate(config=config, scenario=scenario, ratio=ratio, device=device)
     edge_cache = NeighborCache()
 
+    edge_counts_per_frame = []
+
     time.sleep(0.5)
     for it in trange(sim.start_frame, n_frames + 1, ncols=100):
         # calculate type change
@@ -434,6 +452,17 @@ def data_generate_cell(
                     f"E={edge_index.shape[1]:8d}, "
                     f"time={(t1 - t0)*1000:.2f} ms"
                 )
+
+            # collect edge stats (bidirectional count / 2 = undirected edges)
+            n_edges = edge_index.shape[1] // 2
+            degree = torch.zeros(n_cells, dtype=torch.long, device=edge_index.device)
+            degree.scatter_add_(0, edge_index[0], torch.ones(edge_index.shape[1], dtype=torch.long, device=edge_index.device))
+            edge_counts_per_frame.append({
+                'n_edges': n_edges,
+                'degree_min': int(degree.min()),
+                'degree_max': int(degree.max()),
+                'degree_mean': float(degree.float().mean()),
+            })
 
             # model prediction
             y = model(x, edge_index)
@@ -483,6 +512,12 @@ def data_generate_cell(
 
         # output plots
         if visualize & (run == run_vizualized) & (it % step == 0) & (it >= 0):
+            # recompute edges at current positions for visualization
+            if "edge" in style:
+                edge_index = edges_radius_blockwise(
+                    x.pos, bc_dpos, min_radius, max_radius, block=4096)
+
+
             active_style = dark_style if "black" in style else default_style
             active_style.apply_globally()
 
@@ -566,10 +601,27 @@ def data_generate_cell(
                     active_style.savefig(fig, f"graphs_data/{dataset_name}/Fig/Rot_{run}_Fig{it}.jpg")
 
                 elif (mc.cell_model_name == "arbitrary_ode") & (dimension == 3):
-                    fig, _ = active_style.figure(width=20, height=10)
+                    from mpl_toolkits.mplot3d.art3d import Line3DCollection
+                    from matplotlib.collections import LineCollection as LC
+
+                    fig, _ = active_style.figure(width=12, height=6)
+                    pos_np = to_numpy(x.pos)
+
+                    # prepare edge segments for drawing
+                    ei_fwd = None
+                    if "edge" in style:
+                        ei_np = to_numpy(edge_index)
+                        fwd_m = ei_np[0] < ei_np[1]
+                        ei_fwd = ei_np[:, fwd_m]
+                        dx = pos_np[ei_fwd[1]] - pos_np[ei_fwd[0]]
+                        no_wrap = np.sqrt((dx ** 2).sum(axis=1)) < max_radius * 1.1
+                        ei_fwd = ei_fwd[:, no_wrap]
 
                     # Left panel: 3D view
                     ax1 = fig.add_subplot(121, projection="3d")
+                    if ei_fwd is not None:
+                        seg3d = np.stack([pos_np[ei_fwd[0]], pos_np[ei_fwd[1]]], axis=1)
+                        ax1.add_collection3d(Line3DCollection(seg3d, colors='#888888', linewidths=0.5, alpha=0.2))
                     for n in range(n_cell_types):
                         ax1.scatter(
                             to_numpy(x.pos[index_cells[n], 0]),
@@ -591,9 +643,19 @@ def data_generate_cell(
                     ax2 = fig.add_subplot(122)
                     z_center = 0.5
                     z_thickness = 0.1
+                    z_vals = pos_np[:, 2]
+                    z_mask = np.abs(z_vals - z_center) < z_thickness
+                    if ei_fwd is not None:
+                        slice_set = set(np.where(z_mask)[0].tolist())
+                        sl_mask = np.array([ei_fwd[0, k] in slice_set and ei_fwd[1, k] in slice_set
+                                            for k in range(ei_fwd.shape[1])])
+                        if sl_mask.any():
+                            ei_sl = ei_fwd[:, sl_mask]
+                            seg2d = np.stack([pos_np[ei_sl[0], :2], pos_np[ei_sl[1], :2]], axis=1)
+                            ax2.add_collection(LC(seg2d, colors='#888888', linewidths=0.5, alpha=0.2))
                     for n in range(n_cell_types):
-                        z_vals = to_numpy(x.pos[index_cells[n], 2])
-                        mask = np.abs(z_vals - z_center) < z_thickness
+                        z_n = to_numpy(x.pos[index_cells[n], 2])
+                        mask = np.abs(z_n - z_center) < z_thickness
                         ax2.scatter(
                             to_numpy(x.pos[index_cells[n], 0])[mask],
                             to_numpy(x.pos[index_cells[n], 1])[mask],
@@ -612,11 +674,25 @@ def data_generate_cell(
                     ax2.set_aspect("equal")
 
                     plt.tight_layout()
-                    active_style.savefig(fig, f"graphs_data/{dataset_name}/Fig/Fig_{run}_{it}.jpg")
+                    active_style.savefig(fig, f"graphs_data/{dataset_name}/Fig/Fig_{run}_{it}.png")
 
                 else:
+                    from matplotlib.collections import LineCollection as LC2
+
                     fig, ax = fig_init(formatx="%.1f", formaty="%.1f")
                     s_p = 25
+
+                    if "edge" in style:
+                        pos_np = to_numpy(x.pos)
+                        ei_np = to_numpy(edge_index)
+                        fwd_m = ei_np[0] < ei_np[1]
+                        ei_fwd = ei_np[:, fwd_m]
+                        dx = pos_np[ei_fwd[1]] - pos_np[ei_fwd[0]]
+                        no_wrap = np.sqrt((dx ** 2).sum(axis=1)) < max_radius * 1.1
+                        ei_fwd = ei_fwd[:, no_wrap]
+                        # note: plot uses (y, x) ordering
+                        seg = np.stack([pos_np[ei_fwd[0]][:, [1, 0]], pos_np[ei_fwd[1]][:, [1, 0]]], axis=1)
+                        ax.add_collection(LC2(seg, colors='#888888', linewidths=0.5, alpha=0.2))
 
                     for n in range(n_cell_types):
                         plt.scatter(
@@ -662,7 +738,7 @@ def data_generate_cell(
                     plt.tight_layout()
 
                     num = f"{it:06}"
-                    active_style.savefig(fig, f"graphs_data/{dataset_name}/Fig/Fig_{run}_{num}.tif")
+                    active_style.savefig(fig, f"graphs_data/{dataset_name}/Fig/Fig_{run}_{num}.png")
 
     if save:
         # finalize zarr writers
@@ -685,6 +761,15 @@ def data_generate_cell(
             )
 
         torch.save(model.p, f"graphs_data/{dataset_name}/model_p.pt")
+
+        # print edge statistics
+        if edge_counts_per_frame:
+            edges_arr = np.array([s['n_edges'] for s in edge_counts_per_frame])
+            deg_min_arr = np.array([s['degree_min'] for s in edge_counts_per_frame])
+            deg_max_arr = np.array([s['degree_max'] for s in edge_counts_per_frame])
+            deg_mean_arr = np.array([s['degree_mean'] for s in edge_counts_per_frame])
+            print(f"edges per frame: min={edges_arr.min()} max={edges_arr.max()} mean={edges_arr.mean():.0f}")
+            print(f"degree per cell: min={deg_min_arr.min()} max={deg_max_arr.max()} mean={deg_mean_arr.mean():.1f}")
 
 
 def data_generate_cell_field(
