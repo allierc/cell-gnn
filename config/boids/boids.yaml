@@ -48,6 +48,7 @@ graph_model:
 plotting:
   colormap: "tab20"
   arrow_length: 5
+  xlim: [-0.1, 0.1]
   ylim: [-1E-4, 1E-4]
 
 training:

@@ -31,7 +31,7 @@ graph_model:
 plotting:
   colormap: "tab10"
   arrow_length: 2
-  ylim: [-0.04, 0.03]
+  xlim: [0, 0.2]
 
 inr:
   inr_field_name: "residual"

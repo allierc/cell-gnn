@@ -260,7 +260,8 @@ def analyze_edge_function(rr=[], vizualize=False, config=None, model_MLP=[], mod
 
         if config.graph_model.cell_model_name == 'gravity_ode':
             plt.xlim([1E-3, 0.02])
-        plt.ylim(config.plotting.ylim)
+        if config.plotting.ylim is not None:
+            plt.ylim(config.plotting.ylim)
 
     print('UMAP reduction ...')
     with warnings.catch_warnings():
@@ -426,7 +427,6 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
                 if axis:
                     ax.xaxis.set_major_locator(plt.MaxNLocator(3))
                     ax.yaxis.set_major_locator(plt.MaxNLocator(3))
-                    plt.xlim([0, simulation_config.max_radius])
 
                 rr = torch.tensor(np.linspace(0, simulation_config.max_radius, 1000)).to(device)
 
@@ -468,13 +468,12 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
                                 fontsize=style.font_size,
                                 color=style.foreground)
 
-                if model_config.cell_model_name == 'gravity_ode':
-                    plt.xlim([0, 0.02])
-                if true_curves:
-                    all_true = np.concatenate(list(true_curves.values()))
-                    ymin, ymax = all_true.min(), all_true.max()
-                    margin = (ymax - ymin) * 0.1
-                    ax.set_ylim([ymin - margin, ymax + margin])
+                if plot_config.xlim is not None:
+                    ax.set_xlim(plot_config.xlim)
+                else:
+                    ax.set_xlim([0, simulation_config.max_radius])
+                if plot_config.ylim is not None:
+                    ax.set_ylim(plot_config.ylim)
                 ax.axhline(y=0, color='grey', linewidth=0.5, linestyle='-')
                 style.montage_xlabel(ax, r'$r$')
                 style.montage_ylabel(ax, r'$\psi(r)$')
@@ -520,13 +519,12 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
                                 fontsize=style.font_size,
                                 color=style.foreground)
 
-                if true_curves:
-                    all_true = np.concatenate(list(true_curves.values()))
-                    ymin, ymax = all_true.min(), all_true.max()
-                    margin = (ymax - ymin) * 0.1
-                    ax.set_ylim([ymin - margin, ymax + margin])
-                elif not do_tracking:
-                    plt.ylim(config.plotting.ylim)
+                if plot_config.xlim is not None:
+                    ax.set_xlim(plot_config.xlim)
+                else:
+                    ax.set_xlim([0, simulation_config.max_radius])
+                if plot_config.ylim is not None:
+                    ax.set_ylim(plot_config.ylim)
                 ax.axhline(y=0, color='grey', linewidth=0.5, linestyle='-')
                 ax.xaxis.set_major_locator(plt.MaxNLocator(3))
                 ax.yaxis.set_major_locator(plt.MaxNLocator(5))
@@ -698,7 +696,9 @@ def _get_true_psi(rr, config, n_cell_types, device):
         return {}
     config_model = config.graph_model.cell_model_name
     p = true_model.p
-    if p.dim() == 1:
+    # For models where p is (n_params,) for a single type, unsqueeze so p[0] gives the params vector.
+    # For gravity_ode, p is (n_cell_types,) — one scalar mass per type — so don't unsqueeze.
+    if p.dim() == 1 and 'gravity' not in config_model:
         p = p.unsqueeze(0)
 
     true_curves = {}

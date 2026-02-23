@@ -2,10 +2,13 @@
 
 ## Goal
 
-Find a GNN training configuration for 3D cell dynamics (dicty — 1000 cells, 1 type, pair forces) that **minimizes rollout RMSE** over the first 2000 steps while maintaining high psi R² (learned interaction function quality).
+Find a GNN training configuration for 3D cell dynamics (dicty — 1000 cells, 1 type, pair forces) that **minimizes rollout RMSE** over the first 2000 steps.
 
 Primary metric: `rollout_RMSE_mean` (lower is better)
-Secondary metric: `training_psi_R2` (higher is better)
+
+**Training time constraint**: Training should complete in **less than 60 minutes** if possible. Prefer configurations that achieve good RMSE within this budget.
+
+**Note on psi_R2**: The `training_psi_R2` metric is **not applicable** for dicty because there are no ground truth interaction functions to compare against. Do not use psi_R2 for evaluating or classifying runs.
 
 ## Cell-GNN Model
 
@@ -28,16 +31,16 @@ See `CellGNN.PARAMS_DOC` in `src/cell_gnn/models/cell_gnn.py` for detailed model
 |--------|--------|--------|-------------|
 | `rollout_RMSE_mean` | test results | Lower | Mean position RMSE across rollout steps (PRIMARY) |
 | `rollout_RMSE_final` | test results | Lower | RMSE at final rollout step |
-| `training_psi_R2` | training log | Higher | R² between predicted and true interaction function |
+| `training_psi_R2` | training log | N/A | **Not applicable** — no ground truth interaction function for dicty |
 | `training_accuracy` | training log | Higher | Clustering accuracy of learned embeddings |
 | `training_final_loss` | training log | Lower | Final epoch training loss |
-| `training_time_min` | training log | Lower | Training duration in minutes |
+| `training_time_min` | training log | Lower | Training duration in minutes (target: < 60 min) |
 
 ## Classification
 
-- **Converged**: rollout_RMSE_mean < 0.05 AND training_psi_R2 > 0.7
+- **Converged**: rollout_RMSE_mean < 0.05
 - **Partial**: rollout_RMSE_mean in [0.05, 0.2]
-- **Failed**: rollout_RMSE_mean > 0.2 OR training diverged
+- **Failed**: rollout_RMSE_mean > 0.2 OR training diverged OR training_time_min > 60
 
 ## Explorable Training Parameters
 
@@ -98,7 +101,7 @@ Append an entry to the analysis file in this format:
 ```
 ## Iter N: [converged|partial|failed]
 Node: id=N, parent=P
-Metrics: rollout_RMSE_mean=X, training_psi_R2=X, training_accuracy=X, training_time_min=X
+Metrics: rollout_RMSE_mean=X, training_accuracy=X, training_final_loss=X, training_time_min=X
 Mutation: [description of what was changed]
 Observation: [brief analysis of results]
 Next: parent=P
@@ -130,7 +133,7 @@ At block boundaries (every n_iter_block iterations):
 
 ## Knowledge Base (accumulated across all blocks)
 ### Regime Comparison Table
-| Block | Best RMSE | Best psi_R2 | Key finding |
+| Block | Best RMSE | Best time_min | Key finding |
 ### Established Principles
 ### Open Questions
 

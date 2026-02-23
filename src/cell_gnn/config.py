@@ -215,8 +215,8 @@ class PlottingConfig(BaseModel):
     colormap: str = "tab10"
     arrow_length: int = 10
     marker_size: int = 100
-    xlim: list[float] = [-0.1, 0.1]
-    ylim: list[float] = [-0.1, 0.1]
+    xlim: Optional[list[float]] = None
+    ylim: Optional[list[float]] = None
     embedding_lim: list[float] = [-40, 40]
     speedlim: list[float] = [0, 1]
     pic_folder: str = "none"
