@@ -64,7 +64,7 @@ if __name__ == "__main__":
                 alpha=1,
                 erase=True,
                 save=True,
-                step=50,
+                step=250,
                 timer=False
             )
 

@@ -291,6 +291,7 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
     train_config = config.training
     model_config = config.graph_model
     plot_config = config.plotting
+    sign_flip = -1.0 if getattr(plot_config, 'invert_mlp1_sign', False) else 1.0
     do_tracking = train_config.do_tracking
     max_radius = simulation_config.max_radius
     n_runs = train_config.n_runs
@@ -408,7 +409,7 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
         # Plot with LineCollection
         segments = []
         for i in range(all_funcs.shape[0]):
-            y_vals = to_numpy(all_funcs[i]) * ynorm_np
+            y_vals = to_numpy(all_funcs[i]) * ynorm_np * sign_flip
             pts = np.column_stack([rr_np, y_vals])
             segments.append(pts)
         colors = ['b'] * len(segments)
@@ -451,11 +452,11 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
                 # Plot predicted curves first (behind)
                 subsample = 5 if n_runs <= 5 else 1
                 _plot_curves_fast(ax, rr_np, to_numpy(func_list), type_arr, cmap,
-                                  ynorm=ynorm_np, subsample=subsample, alpha=0.25, linewidth=2)
+                                  ynorm=ynorm_np * sign_flip, subsample=subsample, alpha=0.25, linewidth=2)
 
                 # Plot true psi curves on top (thick)
                 true_curves = _get_true_psi(rr, config, n_cell_types, device)
-                _plot_true_psi(ax, rr_np, true_curves, cmap)
+                _plot_true_lin_edge(ax, rr_np, true_curves, cmap, sign_flip=sign_flip)
 
                 # Per-curve R² metric
                 r2_values = _compute_curve_r2(to_numpy(func_list), type_arr, true_curves, ynorm=ynorm_np)
@@ -502,11 +503,11 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
 
                 # Plot predicted curves first (behind)
                 _plot_curves_fast(ax, rr_np, to_numpy(func_list), type_arr, cmap,
-                                  ynorm=ynorm_np, subsample=5, alpha=1.0, linewidth=2)
+                                  ynorm=ynorm_np * sign_flip, subsample=5, alpha=1.0, linewidth=2)
 
                 # Plot true psi curves on top (thick)
                 true_curves = _get_true_psi(rr, config, n_cell_types, device)
-                _plot_true_psi(ax, rr_np, true_curves, cmap)
+                _plot_true_lin_edge(ax, rr_np, true_curves, cmap, sign_flip=sign_flip)
 
                 # Per-curve R² metric
                 r2_values = _compute_curve_r2(to_numpy(func_list), type_arr, true_curves, ynorm=ynorm_np)
@@ -550,6 +551,8 @@ def plot_training_cell_field(config, has_siren, has_siren_time, model_f, n_frame
     simulation_config = config.simulation
     train_config = config.training
     model_config = config.graph_model
+    plot_config = config.plotting
+    sign_flip = -1.0 if getattr(plot_config, 'invert_mlp1_sign', False) else 1.0
     dimension = simulation_config.dimension
 
     max_radius = simulation_config.max_radius
@@ -614,7 +617,7 @@ def plot_training_cell_field(config, has_siren, has_siren_time, model_f, n_frame
     type_arr = to_numpy(x_cell_type[:n_neurons]).astype(int)
 
     _plot_curves_fast(ax, rr_np, to_numpy(func_list), type_arr, cmap,
-                      ynorm=ynorm_np, subsample=5, alpha=0.25, linewidth=8)
+                      ynorm=ynorm_np * sign_flip, subsample=5, alpha=0.25, linewidth=8)
 
     plt.tight_layout()
     style.savefig(fig, f"./{log_dir}/tmp_training/function/MLP1/{model_name}_function_{epoch}_{N}.png")
@@ -716,10 +719,10 @@ def _get_true_psi(rr, config, n_cell_types, device):
     return true_curves
 
 
-def _plot_true_psi(ax, rr_np, true_curves, cmap):
+def _plot_true_lin_edge(ax, rr_np, true_curves, cmap, sign_flip=1.0):
     """Plot true psi curves on top of predicted (thick, per-type color)."""
     for n, psi_np in true_curves.items():
-        ax.plot(rr_np, psi_np, color=cmap.color(n), linewidth=6, alpha=0.5)
+        ax.plot(rr_np, psi_np * sign_flip, color=cmap.color(n), linewidth=6, alpha=0.5)
 
 
 def _compute_curve_r2(func_list_np, type_arr, true_curves, ynorm=1.0):

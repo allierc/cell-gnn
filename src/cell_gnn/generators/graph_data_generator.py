@@ -140,11 +140,15 @@ def load_from_data(
     Expects an NPZ file at graphs_data/{config.data_folder_name} with keys:
         X:     (T, N, dim) positions
         PDIR:  (T, N, dim) polarity direction
-        FPAIR: (T, N, dim) pair forces (used as derivative target)
+        FPAIR: (T, N, dim) pair forces
         params: dict with at least 'L' (box size)
 
     Positions are normalized to [0, 1] using the box size L.
     Velocity is computed from finite differences of normalized positions.
+
+    Target selection depends on config.graph_model.prediction:
+        "first_derivative"  → target = velocity  (dx/dt)
+        "2nd_derivative"    → target = acceleration (d²x/dt²)
     """
 
     sim = config.simulation
@@ -175,6 +179,19 @@ def load_from_data(
     dpos = dpos - np.round(dpos)                 # minimum image in [0, 1]
     vel = dpos / delta_t
     vel = np.concatenate([vel, vel[-1:]], axis=0)  # repeat last frame velocity
+
+    # determine target based on prediction type
+    prediction = config.graph_model.prediction
+    if prediction == "2nd_derivative":
+        # acceleration = d(vel)/dt via finite differences
+        dvel = np.diff(vel, axis=0)                    # (T-1, N, dim)
+        acc = dvel / delta_t
+        acc = np.concatenate([acc, acc[-1:]], axis=0)  # repeat last frame
+        target = acc
+        print(f"  prediction: {prediction} → target = acceleration (2nd derivative)")
+    else:
+        target = vel
+        print(f"  prediction: {prediction} → target = velocity (1st derivative)")
 
     # prepare output directory
     folder = f"./graphs_data/{dataset_name}/"
@@ -216,7 +233,7 @@ def load_from_data(
             cell_type=cell_type,
         )
         x_writer.append_state(state)
-        y_writer.append(FPAIR[t].astype(np.float32))
+        y_writer.append(target[t].astype(np.float32))
 
         # collect edge stats every frame
         edge_index = edges_radius_blockwise(

@@ -845,7 +845,7 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
                 src_pos = pos_np[ei[0]]
                 dst_pos = pos_np[ei[1]]
                 segments = np.stack([src_pos[:, :2], dst_pos[:, :2]], axis=1)
-                lc = LineCollection(segments, colors='#888888', linewidths=1.0, alpha=0.2)
+                lc = LineCollection(segments, colors='#888888', linewidths=1.0, alpha=0.2, zorder=1)
                 ax.add_collection(lc)
 
             # === helper: draw edges on a 3D axis ===
@@ -856,7 +856,7 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
                 src_pos = pos_np[ei[0]]
                 dst_pos = pos_np[ei[1]]
                 segments = np.stack([src_pos, dst_pos], axis=1)
-                lc = Line3DCollection(segments, colors='#888888', linewidths=1.0, alpha=0.2)
+                lc = Line3DCollection(segments, colors='#888888', linewidths=1.0, alpha=0.2, zorder=1)
                 ax.add_collection3d(lc)
 
             # === helper: scatter cells on a 2D axis ===
@@ -864,8 +864,8 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
                 s_p = 10
                 _draw_edges_2d(ax, pos_all_np, ei_fwd)
                 if show_true:
-                    ax.scatter(pos_all_np[:, 0], pos_all_np[:, 1], s=s_p, color='b', alpha=0.5, label='rollout')
-                    ax.scatter(pos_true_np[:, 0], pos_true_np[:, 1], s=s_p, color='g', alpha=0.5, label='true')
+                    ax.scatter(pos_all_np[:, 0], pos_all_np[:, 1], s=s_p, color='b', alpha=0.5, label='rollout', zorder=2)
+                    ax.scatter(pos_true_np[:, 0], pos_true_np[:, 1], s=s_p, color='g', alpha=0.5, label='true', zorder=2)
                 else:
                     index_cells = get_index_cells(x_state, n_cell_types, dimension)
                     pos_np = to_numpy(x_state.pos)
@@ -873,9 +873,9 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
                         px = pos_np[index_cells[n], 0]
                         py = pos_np[index_cells[n], 1]
                         if 'bw' in style:
-                            ax.scatter(px, py, s=s_p, color=active_style.foreground)
+                            ax.scatter(px, py, s=s_p, color=active_style.foreground, zorder=2)
                         else:
-                            ax.scatter(px, py, s=s_p, color=cmap.color(n))
+                            ax.scatter(px, py, s=s_p, color=cmap.color(n), zorder=2)
                 ax.set_xlim([0, 1])
                 ax.set_ylim([0, 1])
                 if label:
@@ -887,9 +887,9 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
                 _draw_edges_3d(ax, pos_all_np, ei_fwd)
                 if show_true:
                     ax.scatter(pos_all_np[:, 0], pos_all_np[:, 1], pos_all_np[:, 2],
-                               s=s_p, color='b', alpha=0.5, edgecolors='none', label='rollout')
+                               s=s_p, color='b', alpha=0.5, edgecolors='none', label='rollout', zorder=2)
                     ax.scatter(pos_true_np[:, 0], pos_true_np[:, 1], pos_true_np[:, 2],
-                               s=s_p, color='g', alpha=0.5, edgecolors='none', label='true')
+                               s=s_p, color='g', alpha=0.5, edgecolors='none', label='true', zorder=2)
                 else:
                     index_cells = get_index_cells(x_state, n_cell_types, dimension)
                     pos_np = to_numpy(x_state.pos)
@@ -898,9 +898,9 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
                         py = pos_np[index_cells[n], 1]
                         pz = pos_np[index_cells[n], 2]
                         if 'bw' in style:
-                            ax.scatter(px, py, pz, s=s_p, color=active_style.foreground, edgecolors='none')
+                            ax.scatter(px, py, pz, s=s_p, color=active_style.foreground, edgecolors='none', zorder=2)
                         else:
-                            ax.scatter(px, py, pz, s=s_p, color=cmap.color(n), edgecolors='none')
+                            ax.scatter(px, py, pz, s=s_p, color=cmap.color(n), edgecolors='none', zorder=2)
                 ax.set_xlim([0, 1]); ax.set_ylim([0, 1]); ax.set_zlim([0, 1])
                 active_style.xlabel(ax, 'x')
                 active_style.ylabel(ax, 'y')
@@ -924,9 +924,9 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
                         _draw_edges_2d(ax, pos_all_np, ei_fwd[:, slice_edge_mask])
                 pos_slice = pos_all_np[mask]
                 if show_true:
-                    ax.scatter(pos_slice[:, 0], pos_slice[:, 1], s=s_p, color='b', alpha=0.5, edgecolors='none', label='rollout')
+                    ax.scatter(pos_slice[:, 0], pos_slice[:, 1], s=s_p, color='b', alpha=0.5, edgecolors='none', label='rollout', zorder=2)
                     pos_true_slice = pos_true_np[mask]
-                    ax.scatter(pos_true_slice[:, 0], pos_true_slice[:, 1], s=s_p, color='g', alpha=0.5, edgecolors='none', label='true')
+                    ax.scatter(pos_true_slice[:, 0], pos_true_slice[:, 1], s=s_p, color='g', alpha=0.5, edgecolors='none', label='true', zorder=2)
                 else:
                     index_cells = get_index_cells(x_state, n_cell_types, dimension)
                     for n in range(n_cell_types):
@@ -935,7 +935,7 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
                         if type_mask.any():
                             c = active_style.foreground if 'bw' in style else cmap.color(n)
                             ax.scatter(pos_all_np[type_mask, 0], pos_all_np[type_mask, 1],
-                                       s=s_p, color=c, edgecolors='none')
+                                       s=s_p, color=c, edgecolors='none', zorder=2)
                 ax.set_xlim([0, 1]); ax.set_ylim([0, 1])
                 ax.set_aspect('equal')
                 if not label:
