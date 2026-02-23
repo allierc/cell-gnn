@@ -77,6 +77,11 @@ class ClusterConnectivity(StrEnum):
     SINGLE = "single"
     AVERAGE = "average"
 
+class INRType(StrEnum):
+    SIREN_TXY = "siren_txy"
+    SIREN_T = "siren_t"
+    NGP = "ngp"
+
 
 # Sub-config schemas for cell-gnn
 
@@ -295,6 +300,42 @@ class TrainingConfig(BaseModel):
     recursive_parameters: list[float] = [0, 0]
 
 
+class INRConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore", protected_namespaces=())
+
+    # Field selection
+    inr_field_name: str = "residual"
+
+    # Architecture
+    inr_type: INRType = INRType.SIREN_TXY
+    inr_gradient_mode: bool = False
+
+    # SIREN params
+    hidden_dim_inr: int = 256
+    n_layers_inr: int = 5
+    omega_inr: float = 80.0
+    omega_inr_learnable: bool = False
+    learning_rate_omega_inr: float = 1e-4
+
+    # Training
+    inr_total_steps: int = 100000
+    inr_batch_size: int = 8
+    inr_learning_rate: float = 1e-5
+
+    # Normalization
+    inr_xy_period: float = 1.0
+    inr_t_period: float = 1.0
+
+    # NGP params (instantNGP via tinycudann)
+    ngp_n_levels: int = 24
+    ngp_n_features_per_level: int = 2
+    ngp_log2_hashmap_size: int = 22
+    ngp_base_resolution: int = 16
+    ngp_per_level_scale: float = 1.4
+    ngp_n_neurons: int = 128
+    ngp_n_hidden_layers: int = 4
+
+
 # Main config schema for cell-gnn
 
 
@@ -311,6 +352,7 @@ class CellGNNConfig(BaseModel):
     graph_model: GraphModelConfig
     plotting: PlottingConfig
     training: TrainingConfig
+    inr: Optional[INRConfig] = None
 
     @staticmethod
     def from_yaml(file_name: str):

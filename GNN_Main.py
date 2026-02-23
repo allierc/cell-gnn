@@ -58,28 +58,38 @@ if __name__ == "__main__":
                 device=device,
                 visualize=True,
                 run_vizualized=0,
-                style="color",
+                style="color edges",
                 alpha=1,
                 erase=True,
                 save=True,
-                step=100,
+                step=50,
                 timer=False
             )
 
-        if "train" in task:
+        if task == "train":
             data_train(config=config, erase=args.erase, best_model=best_model, device=device)
+
+        if "train_inr" in task:
+            from cell_gnn.models.inr_trainer import data_train_INR
+            data_train_INR(
+                config=config,
+                device=device,
+                field_name=config.inr.inr_field_name if config.inr else 'residual',
+                run=0,
+                erase=args.erase,
+            )
 
         if "test" in task:
             data_test(
                 config=config,
                 visualize=True,
-                style="black color name",
+                style="color residual true",
                 verbose=False,
                 best_model='best',
                 run=0,
                 test_mode="",
                 sample_embedding=False,
-                step=5,
+                step=250,
                 device=device,
                 cell_of_interest=0,
             )
