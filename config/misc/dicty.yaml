@@ -1,13 +1,13 @@
 description: "3D overdamped cell cells with pair forces"
 dataset: "dicty"
-data_folder_name: "cell3d_overdamped_N1000_T20_L2_position_pairforce_k250.npz"
+data_folder_name: "data_particle_N1000_T40_dt0005_L1_position_pairforce_k50.npz"
 
 simulation:
   dimension: 3
   n_cells: 1000
   n_cell_types: 1
-  n_frames: 10000
-  delta_t: 0.002
+  n_frames: 8000
+  delta_t: 0.005
   max_radius: 0.2
   min_radius: 0
   sigma: 0.005
@@ -25,7 +25,7 @@ graph_model:
   output_size: 3
   hidden_dim: 128
   n_layers: 5
-  aggr_type: "mean"
+  aggr_type: "add"
   embedding_dim: 2
   update_type: "none"
 
