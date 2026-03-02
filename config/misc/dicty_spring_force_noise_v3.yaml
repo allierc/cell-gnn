@@ -1,5 +1,5 @@
 description: "3D overdamped cells with spring repulsion + adhesion + noise"
-dataset: "dicty_spring_force_noise_v2"
+dataset: "dicty_spring_force_noise_v3"
 
 simulation:
   dimension: 3
@@ -7,7 +7,7 @@ simulation:
   n_cell_types: 1
   n_frames: 8000
   delta_t: 0.005
-  max_radius: 0.2
+  max_radius: 0.14
   min_radius: 0
   sigma: 0.005
   boundary: "periodic"

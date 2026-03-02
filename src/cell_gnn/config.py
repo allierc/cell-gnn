@@ -166,6 +166,7 @@ class SimulationConfig(BaseModel):
     sigma: float = 0.005
 
     non_discrete_level: float = 0
+    noise_model_level: float = 0
 
     state_type: StateType = StateType.DISCRETE
     state_params: list[float] = [-1]

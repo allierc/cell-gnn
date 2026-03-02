@@ -35,8 +35,8 @@ if __name__ == "__main__":
             best_model = None
     else:
         best_model = None
-        task = 'test'
-        config_list = ['dicty_spring_force']
+        task = 'train'
+        config_list = ['dicty_spring_force_noise']
 
     for config_file_ in config_list:
         print(" ")
