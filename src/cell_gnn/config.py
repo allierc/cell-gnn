@@ -167,6 +167,7 @@ class SimulationConfig(BaseModel):
 
     non_discrete_level: float = 0
     noise_model_level: float = 0
+    integration: Integration = Integration.EULER
 
     state_type: StateType = StateType.DISCRETE
     state_params: list[float] = [-1]
@@ -177,7 +178,6 @@ class GraphModelConfig(BaseModel):
 
     cell_model_name: str = ""
     prediction: Prediction = Prediction.SECOND_DERIVATIVE
-    integration: Integration = Integration.EULER
 
     field_type: str = ""
     field_grid: Optional[str] = ""
@@ -336,6 +336,12 @@ class INRConfig(BaseModel):
     ngp_n_hidden_layers: int = 4
 
 
+class RolloutConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore", protected_namespaces=())
+
+    integration: Integration = Integration.EULER
+
+
 class ClaudeConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", protected_namespaces=())
 
@@ -362,6 +368,7 @@ class CellGNNConfig(BaseModel):
     graph_model: GraphModelConfig
     plotting: PlottingConfig
     training: TrainingConfig
+    rollout: Optional[RolloutConfig] = None
     inr: Optional[INRConfig] = None
     claude: Optional[ClaudeConfig] = None
 

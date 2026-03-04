@@ -36,7 +36,7 @@ if __name__ == "__main__":
     else:
         best_model = None
         task = 'train'
-        config_list = ['dicty_spring_force_noise']
+        config_list = ['dicty']
 
     for config_file_ in config_list:
         print(" ")

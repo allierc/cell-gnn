@@ -1,5 +1,6 @@
 import glob
 import os
+import random
 import time
 
 import matplotlib.pyplot as plt
@@ -28,6 +29,7 @@ from cell_gnn.utils import (
     NeighborCache,
     choose_boundary_values,
 )
+from cell_gnn.integrators import euler_step, rk4_step
 
 
 def data_generate(
@@ -54,6 +56,12 @@ def data_generate(
     ):
         print("watch out: data already generated")
         # return
+
+    seed = config.simulation.seed
+
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
 
     has_embryo_data = 'embryo' in config.data_folder_name
     has_external_data = config.data_folder_name != "none"
@@ -346,7 +354,7 @@ def data_generate_cell(
     tc = config.training
     mc = config.graph_model
 
-    print(f"generating data ... {mc.cell_model_name}  integration: {mc.integration}")
+    print(f"generating data ... {mc.cell_model_name}  integration: {sim.integration}")
 
     dimension = sim.dimension
     max_radius = sim.max_radius
@@ -541,7 +549,7 @@ def data_generate_cell(
 
         # cell update (Euler or RK4)
         has_angular_noise = sim.angular_sigma > 0 or sim.angular_bernoulli != [-1]
-        if mc.integration == 'Runge-Kutta' and not has_angular_noise:
+        if sim.integration == 'Runge-Kutta' and not has_angular_noise:
             def _deriv_fn(s):
                 ei = get_edges_with_cache(
                     pos=s.pos, bc_dpos=bc_dpos, cache=edge_cache,
@@ -549,18 +557,15 @@ def data_generate_cell(
                     min_radius=min_radius, block=2048,
                 )
                 return model(s, ei)
-            from cell_gnn.integrators import rk4_step
             x, _ = rk4_step(x, _deriv_fn, delta_t, mc.prediction, bc_pos)
         else:
-            from cell_gnn.integrators import euler_step
             euler_step(x, y, delta_t, mc.prediction, bc_pos)
 
         # output plots
         if visualize & (run == run_vizualized) & (it % step == 0) & (it >= 0):
             # recompute edges at current positions for visualization
-            if "edge" in style:
-                edge_index = edges_radius_blockwise(
-                    x.pos, bc_dpos, min_radius, max_radius, block=4096)
+            edge_index = edges_radius_blockwise(
+                x.pos, bc_dpos, min_radius, max_radius, block=4096)
 
 
             active_style = dark_style if "black" in style else default_style
@@ -653,20 +658,17 @@ def data_generate_cell(
                     pos_np = to_numpy(x.pos)
 
                     # prepare edge segments for drawing
-                    ei_fwd = None
-                    if "edge" in style:
-                        ei_np = to_numpy(edge_index)
-                        fwd_m = ei_np[0] < ei_np[1]
-                        ei_fwd = ei_np[:, fwd_m]
-                        dx = pos_np[ei_fwd[1]] - pos_np[ei_fwd[0]]
-                        no_wrap = np.sqrt((dx ** 2).sum(axis=1)) < max_radius * 1.1
-                        ei_fwd = ei_fwd[:, no_wrap]
+                    ei_np = to_numpy(edge_index)
+                    fwd_m = ei_np[0] < ei_np[1]
+                    ei_fwd = ei_np[:, fwd_m]
+                    dx = pos_np[ei_fwd[1]] - pos_np[ei_fwd[0]]
+                    no_wrap = np.sqrt((dx ** 2).sum(axis=1)) < max_radius * 1.1
+                    ei_fwd = ei_fwd[:, no_wrap]
 
                     # Left panel: 3D view
                     ax1 = fig.add_subplot(121, projection="3d")
-                    if ei_fwd is not None:
-                        seg3d = np.stack([pos_np[ei_fwd[0]], pos_np[ei_fwd[1]]], axis=1)
-                        ax1.add_collection3d(Line3DCollection(seg3d, colors='#888888', linewidths=0.5, alpha=0.2))
+                    seg3d = np.stack([pos_np[ei_fwd[0]], pos_np[ei_fwd[1]]], axis=1)
+                    ax1.add_collection3d(Line3DCollection(seg3d, colors='#888888', linewidths=0.5, alpha=0.2))
                     for n in range(n_cell_types):
                         ax1.scatter(
                             to_numpy(x.pos[index_cells[n], 0]),
@@ -690,14 +692,13 @@ def data_generate_cell(
                     z_thickness = 0.1
                     z_vals = pos_np[:, 2]
                     z_mask = np.abs(z_vals - z_center) < z_thickness
-                    if ei_fwd is not None:
-                        slice_set = set(np.where(z_mask)[0].tolist())
-                        sl_mask = np.array([ei_fwd[0, k] in slice_set and ei_fwd[1, k] in slice_set
-                                            for k in range(ei_fwd.shape[1])])
-                        if sl_mask.any():
-                            ei_sl = ei_fwd[:, sl_mask]
-                            seg2d = np.stack([pos_np[ei_sl[0], :2], pos_np[ei_sl[1], :2]], axis=1)
-                            ax2.add_collection(LC(seg2d, colors='#888888', linewidths=0.5, alpha=0.2))
+                    slice_set = set(np.where(z_mask)[0].tolist())
+                    sl_mask = np.array([ei_fwd[0, k] in slice_set and ei_fwd[1, k] in slice_set
+                                        for k in range(ei_fwd.shape[1])])
+                    if sl_mask.any():
+                        ei_sl = ei_fwd[:, sl_mask]
+                        seg2d = np.stack([pos_np[ei_sl[0], :2], pos_np[ei_sl[1], :2]], axis=1)
+                        ax2.add_collection(LC(seg2d, colors='#888888', linewidths=0.5, alpha=0.2))
                     for n in range(n_cell_types):
                         z_n = to_numpy(x.pos[index_cells[n], 2])
                         mask = np.abs(z_n - z_center) < z_thickness
@@ -1066,7 +1067,7 @@ def data_generate_cell_field(
 
         # cell update (Euler or RK4)
         with torch.no_grad():
-            if mc.integration == 'Runge-Kutta' and not bounce:
+            if sim.integration == 'Runge-Kutta' and not bounce:
                 def _deriv_fn_field(s):
                     ei = get_edges_with_cache(
                         pos=s.pos, bc_dpos=bc_dpos, cache=edge_cache,
@@ -1085,8 +1086,7 @@ def data_generate_cell_field(
                     y0_ = model(s, ei, has_field=False)
                     y1_ = model(s_pf_state, ei_fp, has_field=True)[n_nodes:]
                     return y0_ + y1_
-                from cell_gnn.integrators import rk4_step
-                x, _ = rk4_step(x, _deriv_fn_field, delta_t, mc.prediction, bc_pos)
+                    x, _ = rk4_step(x, _deriv_fn_field, delta_t, mc.prediction, bc_pos)
             else:
                 if mc.prediction == "2nd_derivative":
                     x.vel = x.vel + y * delta_t

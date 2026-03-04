@@ -23,6 +23,7 @@ from cell_gnn.plot import (
     plot_training_summary_panels, plot_loss_components,
 )
 from cell_gnn.sparsify import EmbeddingCluster
+from cell_gnn.integrators import euler_step, rk4_step
 from cell_gnn.generators.utils import choose_model
 from cell_gnn.fitting_models import linear_model
 from cell_gnn.cell_state import CellState, CellTimeSeries, FieldState, FieldTimeSeries
@@ -783,7 +784,8 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
                     x.vel = pred.clone().detach() / (delta_t * time_step)
 
             else:
-                if mc.integration == 'Runge-Kutta':
+                rollout_integration = config.rollout.integration if config.rollout else 'Euler'
+                if rollout_integration == 'Runge-Kutta':
                     def _test_deriv_fn(s):
                         ei = edges_radius_blockwise(s.pos, bc_dpos, min_radius, max_radius, block=4096)
                         if has_field:
@@ -793,17 +795,15 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
                             return p * ynorm
                         else:
                             return p * vnorm
-                    from cell_gnn.integrators import rk4_step
                     x, _ = rk4_step(x, _test_deriv_fn, delta_t, mc.prediction, bc_pos,
                                     n_active=n_cells)
                 else:
                     if mc.prediction == '2nd_derivative':
-                        y = y * ynorm * delta_t
-                        x.vel[:n_cells] = x.vel[:n_cells] + y[:n_cells]  # speed update
+                        derivative = y * ynorm
                     else:
-                        y = y * vnorm
-                        x.vel[:n_cells] = y[:n_cells]
-                    x.pos = bc_pos(x.pos + x.vel * delta_t)  # position update
+                        derivative = y * vnorm
+                    derivative[n_cells:] = 0
+                    euler_step(x, derivative, delta_t, mc.prediction, bc_pos)
 
             if 'inference' in test_mode:
                 x_inference_list.append(x)

@@ -753,9 +753,15 @@ def _get_true_psi(rr, config, n_cell_types, device):
 
 
 def _plot_true_lin_edge(ax, rr_np, true_curves, cmap, sign_flip=1.0):
-    """Plot true psi curves on top of predicted (thick, per-type color)."""
+    """Plot true psi curves on top of predicted (thick, per-type color).
+
+    The true model's psi(r) uses the convention positive=repulsion,
+    but lin_edge learns F = -psi * rhat, so lin_edge_x ≈ -psi.
+    We negate psi here so the true curve matches the learned convention,
+    then apply sign_flip (from invert_mlp1_sign) for display preference.
+    """
     for n, psi_np in true_curves.items():
-        ax.plot(rr_np, psi_np * sign_flip, color=cmap.color(n), linewidth=6, alpha=0.5)
+        ax.plot(rr_np, -psi_np * sign_flip, color=cmap.color(n), linewidth=6, alpha=0.5)
 
 
 def _compute_curve_r2(func_list_np, type_arr, true_curves, ynorm=1.0):
@@ -781,7 +787,7 @@ def _compute_curve_r2(func_list_np, type_arr, true_curves, ynorm=1.0):
         t = int(type_arr[i])
         if t not in true_curves:
             continue
-        y_true = true_curves[t]
+        y_true = -true_curves[t]  # negate: psi convention is +repulsion, lin_edge learns -psi
         y_pred = func_list_np[i] * ynorm_val
         ss_res = np.sum((y_true - y_pred) ** 2)
         ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
