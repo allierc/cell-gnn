@@ -6,13 +6,13 @@ simulation:
   n_cells: 1000
   n_cell_types: 1
   n_frames: 8000
-  delta_t: 0.005
+  delta_t: 0.002
   max_radius: 0.15
   min_radius: 0
   sigma: 0.005
   boundary: "periodic"
   dpos_init: 0
-  cell_params: [[50.0, 0.1, 50.0, 0.14, 0.001, 0.05]]
+  cell_params: [[50.0, 0.1, 50.0, 0.14, 0.001, 0.033]]
   #              k_rep  r0   kadh  r_on  delta  mu_f
   func_params: [["spring", 0, 0]]
   noise_model_level: 0.0
