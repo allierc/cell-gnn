@@ -449,6 +449,22 @@ def data_generate_cell(
         time_chunks=2000,
     )
 
+    # optional writers for clean force and noise (dicty_spring_force_ode)
+    save_force_decomp = hasattr(model, 'last_clean')
+    if save_force_decomp:
+        force_clean_writer = ZarrArrayWriter(
+            path=f"graphs_data/{dataset_name}/force_clean_{run}",
+            n_cells=n_cells,
+            n_features=dimension,
+            time_chunks=2000,
+        )
+        force_noise_writer = ZarrArrayWriter(
+            path=f"graphs_data/{dataset_name}/force_noise_{run}",
+            n_cells=n_cells,
+            n_features=dimension,
+            time_chunks=2000,
+        )
+
     # initialize cell state
     x = init_cellstate(config=config, scenario=scenario, ratio=ratio, device=device)
     edge_cache = NeighborCache()
@@ -546,6 +562,9 @@ def data_generate_cell(
             else:
                 x_writer.append_state(x.detach())
                 y_writer.append(to_numpy(y.clone().detach()))
+            if save_force_decomp:
+                force_clean_writer.append(to_numpy(model.last_clean.clone().detach()))
+                force_noise_writer.append(to_numpy(model.last_noise.clone().detach()))
 
         # cell update (Euler or RK4)
         has_angular_noise = sim.angular_sigma > 0 or sim.angular_bernoulli != [-1]

@@ -54,8 +54,14 @@ class DictySpringForceODE(nn.Module):
         messages = self.message(pos_i, pos_j, parameters_i, field_j)
         d_pos = scatter_aggregate(messages, dst, state.n_cells, self.aggr_type)
 
+        self.last_clean = d_pos.clone()
+
         if self.noise_model_level > 0:
-            d_pos = d_pos + self.noise_model_level * torch.randn_like(d_pos)
+            noise = self.noise_model_level * torch.randn_like(d_pos)
+            self.last_noise = noise
+            d_pos = d_pos + noise
+        else:
+            self.last_noise = torch.zeros_like(d_pos)
 
         return d_pos
 
