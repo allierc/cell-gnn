@@ -1132,3 +1132,78 @@ def plot_residual_field_3d(pos, residual, frame, dimension, log_dir, cmap, sim):
 
     plt.tight_layout()
     style.savefig(fig, f'{out_dir}/residual_{frame:06d}.png')
+
+
+def plot_residual_vs_noise(residual_arr, noise_arr, pred_vs_clean_arr, log_dir):
+    """Compare residuals, noise, and prediction-vs-clean-force over time.
+
+    Args:
+        residual_arr: (T, N, dim) — y_true - y_pred (includes noise).
+        noise_arr: (T, N, dim) — injected noise during data generation.
+        pred_vs_clean_arr: (T, N, dim) — predicted velocity - clean pair force.
+        log_dir: output directory.
+    """
+    import os
+    style = default_style
+
+    T = residual_arr.shape[0]
+    ts = np.arange(T)
+
+    # Per-cell magnitudes, then mean/std across cells at each timestep
+    res_mag = np.sqrt((residual_arr ** 2).sum(axis=-1))       # (T, N)
+    noise_mag = np.sqrt((noise_arr ** 2).sum(axis=-1))         # (T, N)
+    pvc_mag = np.sqrt((pred_vs_clean_arr ** 2).sum(axis=-1))   # (T, N)
+
+    res_mean, res_std = res_mag.mean(axis=1), res_mag.std(axis=1)
+    noise_mean, noise_std = noise_mag.mean(axis=1), noise_mag.std(axis=1)
+    pvc_mean, pvc_std = pvc_mag.mean(axis=1), pvc_mag.std(axis=1)
+
+    out_dir = f'./{log_dir}/results/residual'
+    os.makedirs(out_dir, exist_ok=True)
+
+    # --- Panel 1: Time series of mean magnitudes ---
+    fig, axes = style.figure(nrows=2, ncols=1, width=14, height=10)
+    ax1, ax2 = axes[0], axes[1]
+
+    style.clean_ax(ax1)
+    ax1.plot(ts, noise_mean, color='C0', label='noise |n|', linewidth=1.5)
+    ax1.fill_between(ts, noise_mean - noise_std, noise_mean + noise_std,
+                     color='C0', alpha=0.15)
+    ax1.plot(ts, pvc_mean, color='C1', label='|pred - clean_force|', linewidth=1.5)
+    ax1.fill_between(ts, pvc_mean - pvc_std, pvc_mean + pvc_std,
+                     color='C1', alpha=0.15)
+    ax1.plot(ts, res_mean, color='C2', label='|residual| (y_true - y_pred)', linewidth=1.5,
+             linestyle='--')
+    style.xlabel(ax1, 'frame')
+    style.ylabel(ax1, 'mean magnitude')
+    ax1.legend(fontsize=style.font_size - 2)
+    ax1.set_title('Noise vs prediction error vs residual', fontsize=style.font_size)
+
+    # --- Panel 2: Scatter of per-cell noise mag vs pred-vs-clean mag ---
+    style.clean_ax(ax2)
+    # Subsample for speed
+    n_pts = min(50000, noise_mag.size)
+    idx = np.random.choice(noise_mag.size, size=n_pts, replace=False)
+    noise_flat = noise_mag.ravel()[idx]
+    pvc_flat = pvc_mag.ravel()[idx]
+    ax2.scatter(noise_flat, pvc_flat, s=1, alpha=0.15, color='C3', rasterized=True)
+    lim = max(noise_flat.max(), pvc_flat.max()) * 1.05
+    ax2.plot([0, lim], [0, lim], 'k--', linewidth=1, alpha=0.5, label='y=x')
+    ax2.set_xlim([0, lim])
+    ax2.set_ylim([0, lim])
+    style.xlabel(ax2, '|noise|')
+    style.ylabel(ax2, '|pred - clean_force|')
+    ax2.legend(fontsize=style.font_size - 2)
+    ax2.set_title('Per-cell: noise magnitude vs prediction error', fontsize=style.font_size)
+    ax2.set_aspect('equal')
+
+    plt.tight_layout()
+    style.savefig(fig, f'{out_dir}/residual_vs_noise.png')
+
+    # Print summary statistics
+    print(f'  Noise:          mean={noise_mean.mean():.6f}  std={noise_mean.std():.6f}')
+    print(f'  Pred-vs-clean:  mean={pvc_mean.mean():.6f}  std={pvc_mean.std():.6f}')
+    print(f'  Residual:       mean={res_mean.mean():.6f}  std={res_mean.std():.6f}')
+    ratio = pvc_mean.mean() / (noise_mean.mean() + 1e-12)
+    print(f'  |pred-clean|/|noise| ratio: {ratio:.3f}  (1.0 = prediction error ~ noise level)')
+    print(f'  Saved: {out_dir}/residual_vs_noise.png')

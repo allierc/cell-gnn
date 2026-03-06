@@ -1016,12 +1016,25 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
 
     # --- One-step residual field ---
     print('computing one-step residual field ...')
-    from cell_gnn.plot import plot_residual_field_3d
+    from cell_gnn.plot import plot_residual_field_3d, plot_residual_vs_noise
     from cell_gnn.zarr_io import ZarrArrayWriter
 
     residual_list = []
     os.makedirs(f'./{log_dir}/results/residual', exist_ok=True)
     n_test_frames = min(n_frames - 4, x_ts.n_frames - 4)
+
+    # Load saved force decomposition if available
+    force_clean_path = f'graphs_data/{dataset_name}/force_clean_{run}.zarr'
+    force_noise_path = f'graphs_data/{dataset_name}/force_noise_{run}.zarr'
+    has_force_decomp = os.path.exists(force_clean_path)
+    if has_force_decomp:
+        force_clean_raw = load_raw_array(f'graphs_data/{dataset_name}/force_clean_{run}')
+        force_noise_raw = load_raw_array(f'graphs_data/{dataset_name}/force_noise_{run}')
+        noise_list = []
+        pred_vs_clean_list = []
+        print(f'  force decomposition found: force_clean + force_noise')
+    else:
+        print(f'  no force decomposition found (generate data with dicty_spring_force_ode to get it)')
 
     with torch.no_grad():
         for it in trange(n_test_frames, ncols=100, desc='one-step residual'):
@@ -1039,6 +1052,13 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
 
             residual = y_gt[:n_cells] - pred[:n_cells] * ynorm
             residual_list.append(to_numpy(residual))
+
+            if has_force_decomp and it < force_clean_raw.shape[0]:
+                noise_t = force_noise_raw[it][:n_cells]
+                clean_t = force_clean_raw[it][:n_cells]
+                pred_vel = to_numpy(pred[:n_cells] * ynorm)
+                noise_list.append(np.array(noise_t))
+                pred_vs_clean_list.append(pred_vel - np.array(clean_t))
 
             if (it % step == 0) and visualize:
                 pos_np = to_numpy(x0.pos[:n_cells])
@@ -1058,6 +1078,11 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
     residual_mag = np.sqrt((residual_arr ** 2).sum(axis=-1))
     print(f'Residual field: mean magnitude = {residual_mag.mean():.6f}, max = {residual_mag.max():.6f}')
     print(f'Saved to graphs_data/{dataset_name}/residual_list_{run}.zarr')
+
+    if has_force_decomp and len(noise_list) > 0:
+        noise_arr = np.stack(noise_list, axis=0)
+        pred_vs_clean_arr = np.stack(pred_vs_clean_list, axis=0)
+        plot_residual_vs_noise(residual_arr, noise_arr, pred_vs_clean_arr, log_dir)
 
     # Write structured results log
     results = {
