@@ -809,6 +809,9 @@ def data_generate_cell(
         # finalize zarr writers
         n_frames_written = x_writer.finalize()
         y_writer.finalize()
+        if save_force_decomp:
+            force_clean_writer.finalize()
+            force_noise_writer.finalize()
         print(f"generated {n_frames_written} frames total (saved as .zarr)")
 
         if has_cell_dropout:

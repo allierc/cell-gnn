@@ -15,7 +15,7 @@ simulation:
   cell_params: [[50.0, 0.1, 50.0, 0.14, 0.001, 0.033]]
   #              k_rep  r0   kadh  r_on  delta  mu_f
   func_params: [["spring", 0, 0]]
-  noise_model_level: 0.06
+  noise_model_level: 0.08
   integration: "Runge-Kutta"
 
 graph_model:
