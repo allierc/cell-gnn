@@ -1016,7 +1016,7 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
 
     # --- One-step residual field ---
     print('computing one-step residual field ...')
-    from cell_gnn.plot import plot_residual_field_3d, plot_residual_vs_noise
+    from cell_gnn.plot import plot_residual_field_3d, plot_residual_vs_noise, plot_noise_vs_error_snapshot
     from cell_gnn.zarr_io import ZarrArrayWriter
 
     residual_list = []
@@ -1064,6 +1064,10 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
                 pos_np = to_numpy(x0.pos[:n_cells])
                 res_np = to_numpy(residual)
                 plot_residual_field_3d(pos_np, res_np, it, dimension, log_dir, cmap, sim)
+                if has_force_decomp and it < force_clean_raw.shape[0]:
+                    plot_noise_vs_error_snapshot(
+                        pos_np, np.array(noise_t), pred_vel - np.array(clean_t),
+                        res_np, it, dimension, log_dir)
 
     residual_arr = np.stack(residual_list, axis=0)  # (T, N, dim)
     np.save(f'./{log_dir}/results/residual_field.npy', residual_arr)

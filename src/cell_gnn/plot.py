@@ -1134,6 +1134,92 @@ def plot_residual_field_3d(pos, residual, frame, dimension, log_dir, cmap, sim):
     style.savefig(fig, f'{out_dir}/residual_{frame:06d}.png')
 
 
+def plot_noise_vs_error_snapshot(pos, noise_t, pred_vs_clean_t, residual_t,
+                                 frame, dimension, log_dir):
+    """Per-frame comparison: noise, pred-vs-clean error, and residual.
+
+    Three panels:
+      Left:   scatter colored by |noise|
+      Center: scatter colored by |pred - clean_force|
+      Right:  scatter colored by |residual| (y_true - y_pred)
+    """
+    import os
+    style = default_style
+    out_dir = f'./{log_dir}/results/noise_vs_error'
+    os.makedirs(out_dir, exist_ok=True)
+
+    noise_mag = np.sqrt((noise_t ** 2).sum(axis=-1))
+    pvc_mag = np.sqrt((pred_vs_clean_t ** 2).sum(axis=-1))
+    res_mag = np.sqrt((residual_t ** 2).sum(axis=-1))
+
+    # Common color scale
+    vmax = max(noise_mag.max(), pvc_mag.max(), res_mag.max()) + 1e-12
+
+    if dimension == 3:
+        # Use Z cross-section for 3D
+        z_center, z_thick = 0.5, 0.1
+        mask = np.abs(pos[:, 2] - z_center) < z_thick
+        if mask.sum() < 10:
+            mask = np.ones(pos.shape[0], dtype=bool)
+        p = pos[mask, :2]
+        n_m, pvc_m, r_m = noise_mag[mask], pvc_mag[mask], res_mag[mask]
+        noise_vec = noise_t[mask, :2]
+        pvc_vec = pred_vs_clean_t[mask, :2]
+        res_vec = residual_t[mask, :2]
+    else:
+        p = pos[:, :2]
+        n_m, pvc_m, r_m = noise_mag, pvc_mag, res_mag
+        noise_vec = noise_t[:, :2]
+        pvc_vec = pred_vs_clean_t[:, :2]
+        res_vec = residual_t[:, :2]
+
+    fig, axes = plt.subplots(2, 3, figsize=(21, 12))
+
+    # --- Top row: scatter colored by magnitude ---
+    titles_top = ['|noise|', '|pred - clean_force|', '|residual|']
+    data_top = [n_m, pvc_m, r_m]
+
+    for ax, d, title in zip(axes[0], data_top, titles_top):
+        style.clean_ax(ax)
+        sc = ax.scatter(p[:, 0], p[:, 1], s=5, c=d, cmap='hot',
+                        vmin=0, vmax=vmax, alpha=0.7, edgecolors='none')
+        ax.set_xlim([0, 1])
+        ax.set_ylim([0, 1])
+        ax.set_aspect('equal')
+        ax.set_title(f'{title}  (mean={d.mean():.5f})', fontsize=style.font_size)
+        style.xlabel(ax, 'X')
+        style.ylabel(ax, 'Y')
+
+    fig.colorbar(sc, ax=axes[0, -1], shrink=0.8)
+
+    # --- Bottom row: quiver plots showing vectors ---
+    titles_bot = ['noise vector', 'pred - clean_force vector', 'residual vector']
+    vecs = [noise_vec, pvc_vec, res_vec]
+    mags = [n_m, pvc_m, r_m]
+
+    n = p.shape[0]
+    step_q = max(1, n // 500)
+    idx = np.arange(0, n, step_q)
+    scale_val = vmax * 10 + 1e-12
+
+    for ax, v, m, title in zip(axes[1], vecs, mags, titles_bot):
+        style.clean_ax(ax)
+        ax.scatter(p[:, 0], p[:, 1], s=3, c='gray', alpha=0.3, edgecolors='none')
+        ax.quiver(p[idx, 0], p[idx, 1], v[idx, 0], v[idx, 1],
+                  m[idx], cmap='hot', clim=(0, vmax),
+                  alpha=0.7, scale=scale_val, width=0.003)
+        ax.set_xlim([0, 1])
+        ax.set_ylim([0, 1])
+        ax.set_aspect('equal')
+        ax.set_title(f'{title}  (mean={m.mean():.5f})', fontsize=style.font_size)
+        style.xlabel(ax, 'X')
+        style.ylabel(ax, 'Y')
+
+    fig.suptitle(f'frame {frame}', fontsize=style.font_size + 2)
+    plt.tight_layout()
+    style.savefig(fig, f'{out_dir}/noise_vs_error_{frame:06d}.png')
+
+
 def plot_residual_vs_noise(residual_arr, noise_arr, pred_vs_clean_arr, log_dir):
     """Compare residuals, noise, and prediction-vs-clean-force over time.
 

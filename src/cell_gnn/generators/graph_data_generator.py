@@ -450,7 +450,8 @@ def data_generate_cell(
     )
 
     # optional writers for clean force and noise (dicty_spring_force_ode)
-    save_force_decomp = hasattr(model, 'last_clean')
+    from cell_gnn.generators.dicty_spring_force_ode import DictySpringForceODE
+    save_force_decomp = isinstance(model, DictySpringForceODE)
     if save_force_decomp:
         force_clean_writer = ZarrArrayWriter(
             path=f"graphs_data/{dataset_name}/force_clean_{run}",
