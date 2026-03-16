@@ -6,7 +6,7 @@ simulation:
   n_cells: 2000
   n_cell_types: 1
   n_frames: 6000
-  delta_t: 0.002
+  delta_t: 0.001
   max_radius: 0.15
   min_radius: 0
   sigma: 0.005
