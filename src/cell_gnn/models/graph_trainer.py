@@ -1088,6 +1088,165 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
         pred_vs_clean_arr = np.stack(pred_vs_clean_list, axis=0)
         plot_residual_vs_noise(residual_arr, noise_arr, pred_vs_clean_arr, log_dir)
 
+    # --- Noisy rollout: sample noise from residual statistics and add to predictions ---
+    do_residual_noise = config.rollout.residual_noise if config.rollout else False
+    if do_residual_noise:
+        print('running noisy rollout (sampling from residual distribution) ...')
+        residual_tensor = torch.tensor(residual_arr, dtype=torch.float32, device=device)
+        residual_mean = residual_tensor.mean(dim=(0, 1))       # (dim,)
+        residual_std = residual_tensor.std(dim=(0, 1))          # (dim,)
+        print(f'  residual mean: {to_numpy(residual_mean)}, std: {to_numpy(residual_std)}')
+
+        noisy_recons_dir = f'./{log_dir}/tmp_recons_noisy'
+        os.makedirs(noisy_recons_dir, exist_ok=True)
+
+        x_noisy = x_ts.frame(start_it).to(device)
+        rmserr_noisy_list = []
+
+        for it in trange(start_it, stop_it, ncols=100, desc='noisy rollout'):
+            x0 = x_ts.frame(it).to(device)
+
+            if has_bounding_box:
+                rmserr = torch.sqrt(
+                    torch.mean(torch.sum(bc_dpos(x_noisy.pos - x0.pos) ** 2, axis=1)))
+            else:
+                if x_noisy.n_cells != x0.n_cells:
+                    rmserr = torch.zeros(1, device=device)
+                else:
+                    rmserr = torch.sqrt(
+                        torch.mean(torch.sum(bc_dpos(x_noisy.pos - x0.pos) ** 2, axis=1)))
+            rmserr_noisy_list.append(rmserr.item())
+
+            if config.training.shared_embedding:
+                data_id = torch.ones((n_cells, 1), dtype=torch.int, device=device)
+            else:
+                data_id = torch.ones((n_cells, 1), dtype=torch.int, device=device) * run
+
+            with torch.no_grad():
+                edge_index = edges_radius_blockwise(x_noisy.pos, bc_dpos, min_radius, max_radius, block=4096)
+
+                if has_field:
+                    field = model_f(time=it / n_frames) ** 2
+                    x_noisy.field = field
+
+                pred = model(x_noisy, edge_index, data_id=data_id, training=False, has_field=has_field, k=it)
+
+                # Add noise sampled from residual distribution
+                sampled_noise = residual_mean + residual_std * torch.randn(n_cells, dimension, device=device)
+                pred_noisy = pred.clone()
+                pred_noisy[:n_cells] = pred[:n_cells] + sampled_noise / ynorm
+
+                if mc.prediction == '2nd_derivative':
+                    derivative = pred_noisy * ynorm
+                else:
+                    derivative = pred_noisy * vnorm
+                derivative[n_cells:] = 0
+                euler_step(x_noisy, derivative, delta_t, mc.prediction, bc_pos)
+
+            # --- Visualization for noisy rollout ---
+            if (it % step == 0) & (it >= 0) & visualize:
+                num = f"{it:06}"
+
+                from cell_gnn.figure_style import default_style as fig_style_n, dark_style as dark_style_n
+                if 'black' in style:
+                    active_style_n = dark_style_n
+                else:
+                    active_style_n = fig_style_n
+                active_style_n.apply_globally()
+
+                is_3d = (dimension == 3)
+                show_true_n = ('true' in style)
+                pos_noisy_np = to_numpy(x_noisy.pos)
+                pos_true_np_n = to_numpy(x0.pos) if show_true_n else None
+
+                fig_dpi = 100
+                if is_3d:
+                    nrows_n, ncols_n = 1, 2
+                    fig_w_n, fig_h_n = 6 * 2, 6
+                else:
+                    nrows_n, ncols_n = 1, 1
+                    fig_w_n, fig_h_n = 6, 6
+                fig_n = plt.figure(figsize=(fig_w_n, fig_h_n), facecolor=active_style_n.background)
+                ax_idx_n = 1
+
+                if is_3d:
+                    ax1_n = fig_n.add_subplot(nrows_n, ncols_n, ax_idx_n, projection='3d')
+                    title_n = 'noisy rollout + true' if show_true_n else 'noisy rollout'
+                    s_p = 10
+                    if show_true_n:
+                        ax1_n.scatter(pos_noisy_np[:, 0], pos_noisy_np[:, 1], pos_noisy_np[:, 2],
+                                      s=s_p, color='r', alpha=0.5, edgecolors='none', label='noisy rollout', zorder=2)
+                        ax1_n.scatter(pos_true_np_n[:, 0], pos_true_np_n[:, 1], pos_true_np_n[:, 2],
+                                      s=s_p, color='g', alpha=0.5, edgecolors='none', label='true', zorder=2)
+                    else:
+                        index_cells_n = get_index_cells(x_noisy, n_cell_types, dimension)
+                        for n in range(n_cell_types):
+                            px = pos_noisy_np[index_cells_n[n], 0]
+                            py = pos_noisy_np[index_cells_n[n], 1]
+                            pz = pos_noisy_np[index_cells_n[n], 2]
+                            ax1_n.scatter(px, py, pz, s=s_p, color=cmap.color(n), edgecolors='none', zorder=2)
+                    ax1_n.set_xlim([0, 1]); ax1_n.set_ylim([0, 1]); ax1_n.set_zlim([0, 1])
+                    ax1_n.set_title(title_n, fontsize=active_style_n.font_size, color=active_style_n.foreground)
+                    ax_idx_n += 1
+
+                    # z-slice
+                    ax2_n = fig_n.add_subplot(nrows_n, ncols_n, ax_idx_n)
+                    z_center, z_thickness = 0.5, 0.1
+                    z_vals = pos_noisy_np[:, 2]
+                    mask_n = np.abs(z_vals - z_center) < z_thickness
+                    pos_slice_n = pos_noisy_np[mask_n]
+                    s_p = 15
+                    if show_true_n:
+                        ax2_n.scatter(pos_slice_n[:, 0], pos_slice_n[:, 1], s=s_p, color='r', alpha=0.5, edgecolors='none', label='noisy rollout', zorder=2)
+                        pos_true_slice_n = pos_true_np_n[mask_n]
+                        ax2_n.scatter(pos_true_slice_n[:, 0], pos_true_slice_n[:, 1], s=s_p, color='g', alpha=0.5, edgecolors='none', label='true', zorder=2)
+                    else:
+                        index_cells_n = get_index_cells(x_noisy, n_cell_types, dimension)
+                        for n in range(n_cell_types):
+                            idx = index_cells_n[n].flatten()
+                            type_mask = np.isin(np.arange(len(pos_noisy_np)), idx) & mask_n
+                            if type_mask.any():
+                                ax2_n.scatter(pos_noisy_np[type_mask, 0], pos_noisy_np[type_mask, 1],
+                                              s=s_p, color=cmap.color(n), edgecolors='none', zorder=2)
+                    ax2_n.set_xlim([0, 1]); ax2_n.set_ylim([0, 1])
+                    ax2_n.set_aspect('equal')
+                    ax2_n.set_title(f'z slice ({z_center - z_thickness:.1f} < z < {z_center + z_thickness:.1f})',
+                                    fontsize=active_style_n.font_size, color=active_style_n.foreground)
+                else:
+                    ax1_n = fig_n.add_subplot(nrows_n, ncols_n, ax_idx_n)
+                    s_p = 10
+                    if show_true_n:
+                        ax1_n.scatter(pos_noisy_np[:, 0], pos_noisy_np[:, 1], s=s_p, color='r', alpha=0.5, label='noisy rollout', zorder=2)
+                        ax1_n.scatter(pos_true_np_n[:, 0], pos_true_np_n[:, 1], s=s_p, color='g', alpha=0.5, label='true', zorder=2)
+                    else:
+                        index_cells_n = get_index_cells(x_noisy, n_cell_types, dimension)
+                        for n in range(n_cell_types):
+                            px = pos_noisy_np[index_cells_n[n], 0]
+                            py = pos_noisy_np[index_cells_n[n], 1]
+                            ax1_n.scatter(px, py, s=s_p, color=cmap.color(n), zorder=2)
+                    ax1_n.set_xlim([0, 1]); ax1_n.set_ylim([0, 1])
+
+                fig_n.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05, wspace=0.3)
+                active_style_n.savefig(fig_n, f"{noisy_recons_dir}/Fig_{config_file}_{run}_{num}.png",
+                                       dpi=fig_dpi, bbox_inches=None)
+
+        rmserr_noisy_arr = np.array(rmserr_noisy_list)
+        np.save(f'./{log_dir}/results/rmserr_noisy_rollout.npy', rmserr_noisy_arr)
+        print(f'  noisy rollout RMSE mean: {rmserr_noisy_arr.mean():.6f}, final: {rmserr_noisy_arr[-1]:.6f}')
+
+        # Plot comparison of clean vs noisy rollout RMSE
+        from cell_gnn.figure_style import default_style as fig_style
+        fig_style.apply_globally()
+        fig, ax = plt.subplots(figsize=(8, 4))
+        ax.plot(rmserr_list, label='clean rollout', color='b')
+        ax.plot(rmserr_noisy_list, label='noisy rollout', color='r', alpha=0.7)
+        ax.set_xlabel('time step')
+        ax.set_ylabel('RMSE')
+        ax.legend()
+        ax.set_title('Rollout RMSE: clean vs noisy (residual-sampled)')
+        plt.tight_layout()
+        fig_style.savefig(fig, f'./{log_dir}/results/rollout_clean_vs_noisy.png')
+
     # Write structured results log
     results = {
         'rollout_RMSE_mean': float(np.mean(rmserr_list)) if rmserr_list else 0.0,
@@ -1095,6 +1254,9 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
         'residual_mean_magnitude': float(residual_mag.mean()),
         'residual_max_magnitude': float(residual_mag.max()),
     }
+    if do_residual_noise:
+        results['noisy_rollout_RMSE_mean'] = float(rmserr_noisy_arr.mean())
+        results['noisy_rollout_RMSE_final'] = float(rmserr_noisy_arr[-1])
     results_log_path = os.path.join(log_dir, 'results.log')
     with open(results_log_path, 'w') as f:
         for key, value in results.items():

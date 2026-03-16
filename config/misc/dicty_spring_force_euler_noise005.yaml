@@ -1,5 +1,5 @@
 description: "3D overdamped cells with spring repulsion + adhesion + noise"
-dataset: "dicty_spring_force_rk4_noise004"
+dataset: "dicty_spring_force_euler_noise005"
 
 simulation:
   dimension: 3
@@ -16,7 +16,7 @@ simulation:
   #              k_rep  r0   kadh  r_on  delta  mu_f
   func_params: [["spring", 0, 0]]
   noise_model_level: 0.04
-  integration: "Runge-Kutta"
+  integration: "Euler"
   seed: 42
 
 graph_model:
@@ -63,7 +63,7 @@ training:
   learning_rate_embedding_start: 1.0E-5
 
 rollout:
-  integration: "Runge-Kutta"
+  integration: "Euler"
   residual_noise: true
 
 claude:

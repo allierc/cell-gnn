@@ -340,6 +340,7 @@ class RolloutConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", protected_namespaces=())
 
     integration: Integration = Integration.EULER
+    residual_noise: bool = False
 
 
 class ClaudeConfig(BaseModel):
