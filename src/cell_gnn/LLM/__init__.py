@@ -14,6 +14,7 @@ from .pipeline import (
     run_batch_0,
     run_claude_analysis,
     run_cluster_training,
+    run_local_test_plot,
     run_local_pipeline,
     save_artifacts,
     setup_exploration,

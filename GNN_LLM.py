@@ -22,6 +22,7 @@ from cell_gnn.LLM import (
     load_configs_and_seeds,
     generate_data_locally,
     run_cluster_training,
+    run_local_test_plot,
     run_local_pipeline,
     save_artifacts,
     update_ucb_scores,
@@ -75,6 +76,7 @@ if __name__ == "__main__":
                 if state.generate_data:
                     generate_data_locally(state, batch)
                 run_cluster_training(state, batch)
+                run_local_test_plot(state, batch)
             else:
                 run_local_pipeline(state, batch)
         else:

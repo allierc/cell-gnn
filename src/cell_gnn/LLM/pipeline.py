@@ -378,7 +378,7 @@ def generate_data_locally(state: ExplorationState, batch: BatchInfo):
 
 
 def run_cluster_training(state: ExplorationState, batch: BatchInfo):
-    """PHASE 2-3: Submit cluster jobs, wait for completion."""
+    """PHASE 2-3: Submit cluster training jobs, wait for completion."""
     print(f"\n\033[93mPHASE 2: Submitting {batch.n_slots} training jobs to cluster\033[0m")
 
     if not check_cluster_repo():
@@ -410,30 +410,32 @@ def run_cluster_training(state: ExplorationState, batch: BatchInfo):
         cluster_results = wait_for_cluster_jobs(job_ids, log_dir=state.log_dir, poll_interval=60)
         batch.job_results.update(cluster_results)
 
-    # Test for successful slots
-    print("\n\033[93mPHASE 3.5: Test for successful slots\033[0m")
+
+def run_local_test_plot(state: ExplorationState, batch: BatchInfo):
+    """PHASE 3.5: Run test locally for successful slots (cluster only did training)."""
+    print(f"\n\033[93mPHASE 3.5: Running test locally for {batch.n_slots} slots\033[0m")
     for slot_idx, iteration in enumerate(batch.iterations):
         slot = slot_idx
         if not batch.job_results.get(slot, False):
             print(f"\033[90m  slot {slot} (iter {iteration}): skipping (training failed)\033[0m")
             continue
         config = batch.configs[slot]
+        print(f"\033[90m  slot {slot} (iter {iteration}): testing locally...\033[0m")
         log_file = open(state.analysis_log_paths[slot], 'a')
-        if "test" in state.task:
-            data_test(
-                config=config,
-                visualize=True,
-                style="color residual true",
-                verbose=False,
-                best_model='best',
-                run=0,
-                test_mode="",
-                sample_embedding=False,
-                step=250,
-                device=state.device,
-                cell_of_interest=0,
-                log_file=log_file,
-            )
+        data_test(
+            config=config,
+            visualize=True,
+            style="color residual true",
+            verbose=False,
+            best_model='best',
+            run=0,
+            test_mode="",
+            sample_embedding=False,
+            step=250,
+            device=state.device,
+            cell_of_interest=0,
+            log_file=log_file,
+        )
         log_file.close()
 
 
