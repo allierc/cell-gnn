@@ -655,7 +655,7 @@ def data_generate_cell(
                         plotter = pv.Plotter(off_screen=True, window_size=(900, 900))
                         plotter.set_background("white")
                         for n in range(n_cell_types):
-                            pts = pos_np[to_numpy(index_cells[n])]
+                            pts = pos_np[np.asarray(index_cells[n])]
                             if len(pts) > 0:
                                 cloud = pv.PolyData(pts)
                                 color = cmap.color(n)
