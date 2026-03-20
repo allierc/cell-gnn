@@ -21,7 +21,7 @@ import traceback
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src'))
 
 from cell_gnn.config import CellGNNConfig
-from cell_gnn.models.graph_trainer import data_train, data_test
+from cell_gnn.models.graph_trainer import data_train
 from cell_gnn.utils import set_device
 
 
@@ -83,28 +83,12 @@ def main():
             log_file = open(args.log_file, 'w')
 
         try:
-            # Phase 1: Train
+            # Train only — test runs locally after cluster job completes
             data_train(
                 config=config,
                 erase=args.erase,
                 best_model=None,
                 device=device,
-                log_file=log_file,
-            )
-
-            # Phase 2: Test
-            data_test(
-                config=config,
-                visualize=True,
-                style="color residual true",
-                verbose=False,
-                best_model='best',
-                run=0,
-                test_mode="",
-                sample_embedding=False,
-                step=250,
-                device=device,
-                cell_of_interest=0,
                 log_file=log_file,
             )
 
