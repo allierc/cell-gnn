@@ -343,6 +343,10 @@ class ClaudeConfig(BaseModel):
     n_iter_block: int = 24
     ucb_c: float = 1.414
     node_name: str = "a100"
+    n_parallel: int = 4
+    generate_data: bool = False
+    training_time_target_min: int = 60
+    interaction_code: bool = False
 
 
 # Main config schema for cell-gnn

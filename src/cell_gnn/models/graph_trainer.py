@@ -211,6 +211,7 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
         f.write('epoch,iteration,lin_edge_r2,loss\n')
 
     last_lin_edge_r2 = None
+    last_lin_edge_r2_std = None
     train_start = time.time()
     time.sleep(1)
 
@@ -374,7 +375,8 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
                 postfix = f'loss={avg_loss:.6f}'
                 if last_lin_edge_r2 is not None:
                     c = r2_color(last_lin_edge_r2)
-                    postfix += f' {c}R²={last_lin_edge_r2:.3f}{ANSI_RESET}'
+                    std_str = f'±{last_lin_edge_r2_std:.3f}' if last_lin_edge_r2_std is not None else ''
+                    postfix += f' {c}R²={last_lin_edge_r2:.3f}{std_str}{ANSI_RESET}'
                 pbar.set_postfix_str(postfix)
                 logger.info(f'Epoch {epoch}  iter {N + 1}  avg loss: {avg_loss:.6f}')
 
@@ -383,13 +385,14 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
             if (N % plot_frequency == 0):
                 loss_dict['loss'].append(loss.item() / n_cells)
                 plot_loss_components(loss_dict, regularizer.get_history(), log_dir, epoch=epoch, Niter=Niter)
-                lin_edge_r2 = plot_training(config=config, pred=pred, gt=y_batch, log_dir=log_dir,
+                lin_edge_r2, lin_edge_r2_std = plot_training(config=config, pred=pred, gt=y_batch, log_dir=log_dir,
                               epoch=epoch, N=N, x=x_plot, model=model, n_nodes=0, n_node_types=0, index_nodes=0,
                               dataset_num=1,
                               index_cells=index_cells, n_cells=n_cells,
                               n_cell_types=n_cell_types, ynorm=ynorm, cmap=cmap, axis=True, device=device)
                 if lin_edge_r2 is not None:
                     last_lin_edge_r2 = lin_edge_r2
+                    last_lin_edge_r2_std = lin_edge_r2_std
                     with open(metrics_log_path, 'a') as f:
                         f.write(f'{epoch},{N},{lin_edge_r2:.6f},{loss.item() / n_cells:.6f}\n')
                 torch.save({'model_state_dict': model.state_dict(), 'optimizer_state_dict': optimizer.state_dict()},
@@ -410,7 +413,8 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
         r2_str = ''
         if last_lin_edge_r2 is not None:
             c = r2_color(last_lin_edge_r2)
-            r2_str = f'  {c}lin_edge_R2: {last_lin_edge_r2:.4f}{ANSI_RESET}'
+            std_str = f'±{last_lin_edge_r2_std:.4f}' if last_lin_edge_r2_std is not None else ''
+            r2_str = f'  {c}lin_edge_R2: {last_lin_edge_r2:.4f}{std_str}{ANSI_RESET}'
         print("Epoch {}. loss: {:.6f}  regul: {:.6f}{}".format(epoch, total_loss / n_cells, total_loss_regul / n_cells, r2_str))
         logger.info("epoch {}. Loss: {:.6f}  regul: {:.6f}".format(epoch, total_loss / n_cells, total_loss_regul / n_cells))
         if last_lin_edge_r2 is not None:
@@ -455,7 +459,7 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
                 ax_tmp.set_xticks([])
                 ax_tmp.set_yticks([])
                 fig_tmp.tight_layout()
-                fig_style.savefig(fig_tmp, f"./{log_dir}/tmp_training/Fig_{epoch}_before training function.png")
+                fig_style.savefig(fig_tmp, f"{log_dir}/tmp_training/Fig_{epoch}_before training function.png")
 
                 lr_embedding = 1E-12
                 optimizer, n_total_params = set_trainable_parameters(model, lr_embedding, lr)
@@ -493,7 +497,7 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
                 logger.info(f'Learning rates: {lr}, {lr_embedding}')
 
         fig.tight_layout()
-        fig_style.savefig(fig, f"./{log_dir}/tmp_training/Fig_{epoch}.png")
+        fig_style.savefig(fig, f"{log_dir}/tmp_training/Fig_{epoch}.png")
 
     # === LLM-MODIFIABLE: TRAINING LOOP END ===
 
@@ -967,7 +971,7 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
             fig.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05,
                                 wspace=0.3)
             # bbox_inches=None to keep fixed pixel size across frames (no tight cropping)
-            active_style.savefig(fig, f"./{log_dir}/tmp_recons/Fig_{config_file}_{run}_{num}.png",
+            active_style.savefig(fig, f"{log_dir}/tmp_recons/Fig_{config_file}_{run}_{num}.png",
                                  dpi=fig_dpi, bbox_inches=None)
 
             if ('feature' in style) & ('PDE_MLPs_A' in config.graph_model.cell_model_name):
@@ -984,7 +988,7 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
                     ax_f.set_xlim([0, 1])
                     ax_f.set_ylim([0, 1])
                 plt.tight_layout()
-                fig_style.savefig(fig_f, f"./{log_dir}/tmp_recons/Features_{config_file}_{run}_{num}.png")
+                fig_style.savefig(fig_f, f"{log_dir}/tmp_recons/Features_{config_file}_{run}_{num}.png")
 
             if 'boundary' in style:
                 fig_b, ax_b = fig_init(formatx='%.1f', formaty='%.1f')
@@ -993,7 +997,7 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
                 ax_b.set_xlim([0, 1])
                 ax_b.set_ylim([0, 1])
                 plt.tight_layout()
-                fig_style.savefig(fig_b, f"./{log_dir}/tmp_recons/Boundary_{config_file}_{num}.png")
+                fig_style.savefig(fig_b, f"{log_dir}/tmp_recons/Boundary_{config_file}_{num}.png")
 
     # --- One-step residual field ---
     print('computing one-step residual field ...')
@@ -1001,7 +1005,7 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
     from cell_gnn.zarr_io import ZarrArrayWriter
 
     residual_list = []
-    os.makedirs(f'./{log_dir}/results/residual', exist_ok=True)
+    os.makedirs(f'{log_dir}/results/residual', exist_ok=True)
     n_test_frames = min(n_frames - 4, x_ts.n_frames - 4)
 
     with torch.no_grad():
@@ -1027,7 +1031,7 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
                 plot_residual_field_3d(pos_np, res_np, it, dimension, log_dir, cmap, sim)
 
     residual_arr = np.stack(residual_list, axis=0)  # (T, N, dim)
-    np.save(f'./{log_dir}/results/residual_field.npy', residual_arr)
+    np.save(f'{log_dir}/results/residual_field.npy', residual_arr)
 
     residual_writer = ZarrArrayWriter(
         path=f'{graphs_data_path(dataset_name)}/residual_list_{run}',
@@ -1398,7 +1402,7 @@ def data_train_cell_field(config, erase, best_model, device, log_file=None):
                 ax_tmp.set_xticks([])
                 ax_tmp.set_yticks([])
                 fig_tmp.tight_layout()
-                fig_style.savefig(fig_tmp, f"./{log_dir}/tmp_training/Fig_{epoch}_before training function.png")
+                fig_style.savefig(fig_tmp, f"{log_dir}/tmp_training/Fig_{epoch}_before training function.png")
 
                 lr_embedding = 1E-12
                 optimizer, n_total_params = set_trainable_parameters(model, lr_embedding, lr)
@@ -1436,4 +1440,4 @@ def data_train_cell_field(config, erase, best_model, device, log_file=None):
                 logger.info(f'Learning rates: {lr}, {lr_embedding}')
 
         fig.tight_layout()
-        fig_style.savefig(fig, f"./{log_dir}/tmp_training/Fig_{epoch}.png")
+        fig_style.savefig(fig, f"{log_dir}/tmp_training/Fig_{epoch}.png")

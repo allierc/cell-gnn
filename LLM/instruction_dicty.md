@@ -88,6 +88,10 @@ You may modify code within `LLM-MODIFIABLE` markers in `src/cell_gnn/models/grap
 - Do NOT modify code outside the LLM-MODIFIABLE markers
 - If a code change causes a crash, it will be auto-repaired (up to 3 attempts)
 
+## Seeds
+
+Seeds are **controlled by the pipeline** (GNN_LLM.py). Do NOT modify `simulation.seed` or `training.seed` in configs — the pipeline forces them before each batch. The seed values are shown in the slot info and should be logged in iteration entries.
+
 ## Iteration Workflow
 
 For each iteration, follow these 5 steps IN ORDER:

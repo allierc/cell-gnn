@@ -283,9 +283,10 @@ def analyze_edge_function(rr=[], vizualize=False, config=None, model_MLP=[], mod
 # --------------------------------------------------------------------------- #
 
 def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, n_cell_types, model, n_nodes, n_node_types, index_nodes, dataset_num, ynorm, cmap, axis, device):
-    """Plot training diagnostics. Returns lin_edge R² mean or None if unavailable."""
+    """Plot training diagnostics. Returns (lin_edge_r2_mean, lin_edge_r2_std) or (None, None)."""
 
     lin_edge_r2 = None
+    lin_edge_r2_std = None
     style = default_style
     simulation_config = config.simulation
     train_config = config.training
@@ -347,7 +348,7 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
     style.montage_xlabel(ax, r'$a_0$')
     style.montage_ylabel(ax, r'$a_1$')
     plt.tight_layout()
-    style.savefig(fig, f"./{log_dir}/tmp_training/embedding/{epoch}_{N}.png")
+    style.savefig(fig, f"{log_dir}/tmp_training/embedding/{epoch}_{N}.png")
 
     # --- Pred vs true scatter ---
     fig, ax = style.figure()
@@ -356,7 +357,7 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
     style.xlabel(ax, 'true value')
     style.ylabel(ax, 'pred value')
     plt.tight_layout()
-    style.savefig(fig, f"./{log_dir}/tmp_training/prediction/{epoch}_{N}.png")
+    style.savefig(fig, f"{log_dir}/tmp_training/prediction/{epoch}_{N}.png")
 
     # --- Interaction function curves (vectorized) ---
     if n_runs > 10:
@@ -418,16 +419,16 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
         ax.axhline(y=0, color='grey', linewidth=0.5, linestyle='-')
         ax.autoscale_view()
         if sign_flip < 0:
-            conv_text = '+: repulsive, −: attractive'
+            conv_text = '+ repulsive, − attractive'
         else:
-            conv_text = '+: attractive, −: repulsive'
-        ax.text(0.02, 0.98, conv_text,
-                transform=ax.transAxes, verticalalignment='top',
+            conv_text = '+ attractive, − repulsive'
+        ax.text(0.02, 0.02, conv_text,
+                transform=ax.transAxes, verticalalignment='bottom',
                 fontsize=style.font_size * 0.8,
                 color=style.foreground, alpha=0.7)
 
         plt.tight_layout()
-        style.savefig(fig, f"./{log_dir}/tmp_training/function/MLP1/function_{epoch}_{N}.png")
+        style.savefig(fig, f"{log_dir}/tmp_training/function/MLP1/function_{epoch}_{N}.png")
     else:
         match model_config.cell_model_name:
 
@@ -472,10 +473,15 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
                     valid = r2_values[~np.isnan(r2_values)]
                     if len(valid) > 0:
                         lin_edge_r2 = float(valid.mean())
-                        ax.text(0.02, 0.98, f'R²={lin_edge_r2:.3f}±{valid.std():.3f}',
+                        lin_edge_r2_std = float(valid.std())
+                        ax.text(0.02, 0.98, f'R²={lin_edge_r2:.3f}±{lin_edge_r2_std:.3f}',
                                 transform=ax.transAxes, verticalalignment='top',
                                 fontsize=style.font_size,
                                 color=style.foreground)
+
+                        # Scatter inset: true vs predicted for all curves
+                        _add_r2_scatter_inset(ax, to_numpy(func_list), type_arr, true_curves,
+                                              ynorm=ynorm_np, cmap=cmap, style=style)
 
                 if plot_config.xlim is not None:
                     ax.set_xlim(plot_config.xlim)
@@ -485,17 +491,17 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
                     ax.set_ylim(plot_config.ylim)
                 ax.axhline(y=0, color='grey', linewidth=0.5, linestyle='-')
                 if sign_flip < 0:
-                    conv_text = '+: repulsive, −: attractive'
+                    conv_text = '+ repulsive, − attractive'
                 else:
-                    conv_text = '+: attractive, −: repulsive'
-                ax.text(0.02, 0.90, conv_text,
-                        transform=ax.transAxes, verticalalignment='top',
+                    conv_text = '+ attractive, − repulsive'
+                ax.text(0.02, 0.02, conv_text,
+                        transform=ax.transAxes, verticalalignment='bottom',
                         fontsize=style.font_size * 0.8,
                         color=style.foreground, alpha=0.7)
                 style.montage_xlabel(ax, r'$r$')
                 style.montage_ylabel(ax, r'learned $\mathrm{MLP}_1$')
                 plt.tight_layout()
-                style.savefig(fig, f"./{log_dir}/tmp_training/function/MLP1/function_{epoch}_{N}.png")
+                style.savefig(fig, f"{log_dir}/tmp_training/function/MLP1/function_{epoch}_{N}.png")
 
             case 'boids_ode' | 'boids_field_ode':
                 max_radius_plot = 0.04
@@ -531,10 +537,14 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
                     valid = r2_values[~np.isnan(r2_values)]
                     if len(valid) > 0:
                         lin_edge_r2 = float(valid.mean())
-                        ax.text(0.02, 0.98, f'R²={lin_edge_r2:.3f}±{valid.std():.3f}',
+                        lin_edge_r2_std = float(valid.std())
+                        ax.text(0.02, 0.98, f'R²={lin_edge_r2:.3f}±{lin_edge_r2_std:.3f}',
                                 transform=ax.transAxes, verticalalignment='top',
                                 fontsize=style.font_size,
                                 color=style.foreground)
+
+                        _add_r2_scatter_inset(ax, to_numpy(func_list), type_arr, true_curves,
+                                              ynorm=ynorm_np, cmap=cmap, style=style)
 
                 if plot_config.xlim is not None:
                     ax.set_xlim(plot_config.xlim)
@@ -550,19 +560,19 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
                 fmt = lambda x, pos: '{:.1f}e-5'.format((x) * 1e5, pos)
                 ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(fmt))
                 if sign_flip < 0:
-                    conv_text = '+: repulsive, −: attractive'
+                    conv_text = '+ repulsive, − attractive'
                 else:
-                    conv_text = '+: attractive, −: repulsive'
-                ax.text(0.02, 0.90, conv_text,
-                        transform=ax.transAxes, verticalalignment='top',
+                    conv_text = '+ attractive, − repulsive'
+                ax.text(0.02, 0.02, conv_text,
+                        transform=ax.transAxes, verticalalignment='bottom',
                         fontsize=style.font_size * 0.8,
                         color=style.foreground, alpha=0.7)
                 style.montage_xlabel(ax, r'$r$')
                 style.montage_ylabel(ax, r'learned $\mathrm{MLP}_1$')
                 plt.tight_layout()
-                style.savefig(fig, f"./{log_dir}/tmp_training/function/MLP1/function_{epoch}_{N}.png")
+                style.savefig(fig, f"{log_dir}/tmp_training/function/MLP1/function_{epoch}_{N}.png")
 
-    return lin_edge_r2
+    return lin_edge_r2, lin_edge_r2_std
 
 
 # --------------------------------------------------------------------------- #
@@ -610,7 +620,7 @@ def plot_training_cell_field(config, has_siren, has_siren_time, model_f, n_frame
                        embedding[index_cells[n], 1], color=cmap.color(n), s=1)
 
     plt.tight_layout()
-    style.savefig(fig, f"./{log_dir}/tmp_training/embedding/{model_name}_embedding_{epoch}_{N}.png")
+    style.savefig(fig, f"{log_dir}/tmp_training/embedding/{model_name}_embedding_{epoch}_{N}.png")
 
     # --- Interaction function curves (vectorized) ---
     fig, ax = style.figure(height=12)
@@ -644,16 +654,16 @@ def plot_training_cell_field(config, has_siren, has_siren_time, model_f, n_frame
                       ynorm=ynorm_np * sign_flip, subsample=5, alpha=0.25, linewidth=8)
 
     if sign_flip < 0:
-        conv_text = '+: repulsive, −: attractive'
+        conv_text = '+ repulsive, − attractive'
     else:
-        conv_text = '+: attractive, −: repulsive'
-    ax.text(0.02, 0.98, conv_text,
-            transform=ax.transAxes, verticalalignment='top',
+        conv_text = '+ attractive, − repulsive'
+    ax.text(0.02, 0.02, conv_text,
+            transform=ax.transAxes, verticalalignment='bottom',
             fontsize=style.font_size * 0.8,
             color=style.foreground, alpha=0.7)
 
     plt.tight_layout()
-    style.savefig(fig, f"./{log_dir}/tmp_training/function/MLP1/{model_name}_function_{epoch}_{N}.png")
+    style.savefig(fig, f"{log_dir}/tmp_training/function/MLP1/{model_name}_function_{epoch}_{N}.png")
 
     # --- Siren field visualization ---
     if has_siren:
@@ -679,7 +689,7 @@ def plot_training_cell_field(config, has_siren, has_siren_time, model_f, n_frame
             axf.set_xticks([])
             axf.set_yticks([])
             plt.tight_layout()
-            style.savefig(fig, f"./{log_dir}/tmp_training/external_input/{model_name}_{epoch}_{N}_{frame}.png")
+            style.savefig(fig, f"{log_dir}/tmp_training/external_input/{model_name}_{epoch}_{N}_{frame}.png")
 
 
 # --------------------------------------------------------------------------- #
@@ -791,6 +801,45 @@ def _compute_curve_r2(func_list_np, type_arr, true_curves, ynorm=1.0):
     return r2_values
 
 
+def _add_r2_scatter_inset(ax, func_list_np, type_arr, true_curves, ynorm=1.0, cmap=None, style=None):
+    """Add a small scatter inset (top-right) showing true vs predicted MLP1 values."""
+    if not true_curves:
+        return
+    ynorm_val = float(ynorm) if np.isscalar(ynorm) else np.asarray(ynorm)
+
+    # Subsample points for speed: take every 10th r-point
+    step = max(1, func_list_np.shape[1] // 100)
+    all_true, all_pred, all_colors = [], [], []
+    for i in range(func_list_np.shape[0]):
+        t = int(type_arr[i])
+        if t not in true_curves:
+            continue
+        y_true = true_curves[t][::step]
+        y_pred = (func_list_np[i] * ynorm_val)[::step]
+        all_true.append(y_true)
+        all_pred.append(y_pred)
+        c = cmap.color(t) if cmap is not None and hasattr(cmap, 'color') else f'C{t}'
+        all_colors.extend([c] * len(y_true))
+
+    if not all_true:
+        return
+    all_true = np.concatenate(all_true)
+    all_pred = np.concatenate(all_pred)
+
+    inset = ax.inset_axes([0.65, 0.65, 0.32, 0.32])
+    inset.scatter(all_true, all_pred, c=all_colors, s=1, alpha=0.1, rasterized=True)
+    lims = [min(all_true.min(), all_pred.min()), max(all_true.max(), all_pred.max())]
+    inset.plot(lims, lims, 'grey', linewidth=0.5, alpha=0.7)
+    inset.set_xlim(lims)
+    inset.set_ylim(lims)
+    inset.set_aspect('equal')
+    inset.tick_params(labelsize=6)
+    inset.set_xlabel('true', fontsize=6)
+    inset.set_ylabel('pred', fontsize=6)
+    if style is not None:
+        inset.set_facecolor(style.background)
+
+
 # --------------------------------------------------------------------------- #
 #  Training summary panels
 # --------------------------------------------------------------------------- #
@@ -848,7 +897,7 @@ def plot_training_summary_panels(fig, log_dir, model, config, n_cells, n_cell_ty
         return ax
 
     # --- Find the last saved iteration snapshot ---
-    embedding_files = glob.glob(f"./{log_dir}/tmp_training/embedding/*.png")
+    embedding_files = glob.glob(f"{log_dir}/tmp_training/embedding/*.png")
     if embedding_files:
         last_file = max(embedding_files, key=os.path.getctime)
         filename = os.path.basename(last_file)
@@ -857,9 +906,9 @@ def plot_training_summary_panels(fig, log_dir, model, config, n_cells, n_cell_ty
         last_epoch_N = f"{epoch}_0"
 
     # --- Panels 1-3: load saved images ---
-    _load_panel(fig, 1, f"./{log_dir}/tmp_training/embedding/{last_epoch_N}.png")
-    _load_panel(fig, 2, f"./{log_dir}/tmp_training/function/MLP1/function_{last_epoch_N}.png")
-    _load_panel(fig, 3, f"./{log_dir}/tmp_training/loss.png")
+    _load_panel(fig, 1, f"{log_dir}/tmp_training/embedding/{last_epoch_N}.png")
+    _load_panel(fig, 2, f"{log_dir}/tmp_training/function/MLP1/function_{last_epoch_N}.png")
+    _load_panel(fig, 3, f"{log_dir}/tmp_training/loss.png")
 
     # --- Compute func_list for UMAP and sparsity ---
     embedding = get_embedding(model.a, 0)
@@ -914,7 +963,7 @@ def plot_training_summary_panels(fig, log_dir, model, config, n_cells, n_cell_ty
     logger.info(f'accuracy: {np.round(accuracy, 3)}    n_clusters: {n_clusters}')
 
     # --- Save UMAP plot as standalone montage panel ---
-    os.makedirs(f'./{log_dir}/tmp_training/umap', exist_ok=True)
+    os.makedirs(f'{log_dir}/tmp_training/umap', exist_ok=True)
     fig_umap, ax_umap = style.montage_figure()
     for n in np.unique(new_labels):
         pos = np.array(np.argwhere(new_labels == n).squeeze().astype(int))
@@ -928,7 +977,7 @@ def plot_training_summary_panels(fig, log_dir, model, config, n_cells, n_cell_ty
                            f'n_neighbors={n_neighbors}  min_dist={min_dist}',
                            (0.02, 0.98), verticalalignment='top')
     plt.tight_layout()
-    umap_path = f'./{log_dir}/tmp_training/umap/{epoch}.png'
+    umap_path = f'{log_dir}/tmp_training/umap/{epoch}.png'
     style.savefig(fig_umap, umap_path)
 
     # --- Panel 4: load UMAP as raster (consistent with panels 1-3) ---
@@ -1030,9 +1079,9 @@ def plot_loss_components(loss_dict, regul_history, log_dir, epoch=None, Niter=No
     style.montage_ylabel(ax, 'loss')
     ax.legend(fontsize=style.montage_legend_font_size, loc='best')
 
-    os.makedirs(f'./{log_dir}/tmp_training', exist_ok=True)
+    os.makedirs(f'{log_dir}/tmp_training', exist_ok=True)
     plt.tight_layout()
-    style.savefig(fig_loss, f'./{log_dir}/tmp_training/loss.png')
+    style.savefig(fig_loss, f'{log_dir}/tmp_training/loss.png')
 
 
 # --------------------------------------------------------------------------- #
@@ -1059,7 +1108,7 @@ def plot_residual_field_3d(pos, residual, frame, dimension, log_dir, cmap, sim):
     style = default_style
     mag = np.sqrt((residual ** 2).sum(axis=-1))  # (N,)
 
-    out_dir = f'./{log_dir}/results/residual'
+    out_dir = f'{log_dir}/results/residual'
     os.makedirs(out_dir, exist_ok=True)
 
     if dimension == 3:

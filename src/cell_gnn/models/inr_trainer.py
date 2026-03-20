@@ -268,9 +268,9 @@ def data_train_INR(config, device, field_name=None, run=0, erase=False):
     print(f'  type: {inr_type.value}, gradient_mode: {gradient_mode}')
 
     # --- output directories ---
-    output_folder = f'./{log_dir}/tmp_training/inr'
+    output_folder = f'{log_dir}/tmp_training/inr'
     os.makedirs(output_folder, exist_ok=True)
-    os.makedirs(f'./{log_dir}/models', exist_ok=True)
+    os.makedirs(f'{log_dir}/models', exist_ok=True)
     if erase:
         for f in glob.glob(f'{output_folder}/*'):
             os.remove(f)
@@ -435,7 +435,7 @@ def data_train_INR(config, device, field_name=None, run=0, erase=False):
     print(f'  final MSE: {final_mse:.6e}, R2: {final_r2:.6f}')
 
     # --- save model ---
-    model_path = f'./{log_dir}/models/inr_{field_name}.pt'
+    model_path = f'{log_dir}/models/inr_{field_name}.pt'
     torch.save(model.state_dict(), model_path)
     print(f'  model saved to {model_path}')
 

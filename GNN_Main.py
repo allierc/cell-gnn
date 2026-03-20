@@ -8,7 +8,7 @@ matplotlib.use("Agg")
 from cell_gnn.config import CellGNNConfig
 from cell_gnn.generators.graph_data_generator import data_generate
 from cell_gnn.models.graph_trainer import data_train, data_test
-from cell_gnn.utils import set_device, add_pre_folder, config_path
+from cell_gnn.utils import set_device, add_pre_folder, config_path, get_data_root
 
 warnings.filterwarnings("ignore", message="pkg_resources is deprecated as an API")
 
@@ -37,6 +37,10 @@ if __name__ == "__main__":
         best_model = None
         task = 'train'
         config_list = ['dicty_spring_force']
+
+    data_root = get_data_root()
+    print(f"\033[94mdata_root: {data_root}\033[0m")
+    print(f"\033[94mconfig_path: {config_path()}\033[0m")
 
     for config_file_ in config_list:
         print(" ")

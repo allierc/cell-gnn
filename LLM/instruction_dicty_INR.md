@@ -72,6 +72,10 @@ This dataset has 10,000 frames (10x more than MPM explored), so:
 
 **Constraint**: `inr_total_steps` should be chosen so training_time < 60 min. Scale inversely with hidden_dim.
 
+## Seeds
+
+Seeds are **controlled by the pipeline** (GNN_LLM_INR.py). Do NOT modify seeds in configs — the pipeline forces `inr.seed` before each batch. The seed values are shown in the slot info and should be logged in iteration entries.
+
 ## Iteration Workflow
 
 For each iteration, follow these 5 steps IN ORDER:
