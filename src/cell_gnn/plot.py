@@ -474,12 +474,6 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
                     if len(valid) > 0:
                         g_phi_r2 = float(valid.mean())
                         g_phi_r2_std = float(valid.std())
-                        ax.text(0.02, 0.98, f'R²={g_phi_r2:.3f}±{g_phi_r2_std:.3f}',
-                                transform=ax.transAxes, verticalalignment='top',
-                                fontsize=style.font_size,
-                                color=style.foreground)
-
-                        # Scatter inset: true vs predicted for all curves
                         _add_r2_scatter_inset(ax, to_numpy(func_list), type_arr, true_curves,
                                               ynorm=ynorm_np, cmap=cmap, style=style, r2=g_phi_r2)
 
@@ -498,8 +492,8 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
                         transform=ax.transAxes, verticalalignment='bottom',
                         fontsize=style.font_size * 0.8,
                         color=style.foreground, alpha=0.7)
-                style.montage_xlabel(ax, r'$r$')
-                style.montage_ylabel(ax, r'learned $g_\phi$')
+                style.montage_xlabel(ax, r'$r$', fontsize=32)
+                style.montage_ylabel(ax, r'learned $g_\phi$', fontsize=32)
                 plt.tight_layout()
                 style.savefig(fig, f"{log_dir}/tmp_training/function/g_phi/function_{epoch}_{N}.png")
 
@@ -567,8 +561,8 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
                         transform=ax.transAxes, verticalalignment='bottom',
                         fontsize=style.font_size * 0.8,
                         color=style.foreground, alpha=0.7)
-                style.montage_xlabel(ax, r'$r$')
-                style.montage_ylabel(ax, r'learned $g_\phi$')
+                style.montage_xlabel(ax, r'$r$', fontsize=32)
+                style.montage_ylabel(ax, r'learned $g_\phi$', fontsize=32)
                 plt.tight_layout()
                 style.savefig(fig, f"{log_dir}/tmp_training/function/g_phi/function_{epoch}_{N}.png")
 

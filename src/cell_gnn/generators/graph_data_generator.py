@@ -675,9 +675,9 @@ def data_generate_cell(
                     ax1.set_xticks([])
                     ax1.set_yticks([])
                     ax1.set_zticks([])
-                    ax1.set_xlabel("X")
-                    ax1.set_ylabel("Y")
-                    ax1.set_zlabel("Z")
+                    ax1.set_xlabel("X", fontsize=8, labelpad=-12)
+                    ax1.set_ylabel("Y", fontsize=8, labelpad=-12)
+                    ax1.set_zlabel("Z", fontsize=8, labelpad=-12)
 
                     # Right panel: 2D cross-section (z slice at middle)
                     ax2 = fig.add_subplot(122)
@@ -708,10 +708,9 @@ def data_generate_cell(
                     ax2.set_ylim([0, 1])
                     ax2.set_xticks([])
                     ax2.set_yticks([])
-                    ax2.set_title(
-                        f"Z cross-section ({z_center-z_thickness:.1f} < z < {z_center+z_thickness:.1f})"
-                    )
                     ax2.set_aspect("equal")
+                    for spine in ax2.spines.values():
+                        spine.set_visible(False)
 
                     plt.tight_layout()
                     active_style.savefig(fig, f"{graphs_data_path(dataset_name)}/Fig/Fig_{run}_{it}.png")
