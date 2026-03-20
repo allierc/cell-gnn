@@ -1,5 +1,6 @@
 import glob
 import os
+import sys
 import time
 
 import matplotlib.pyplot as plt
@@ -449,6 +450,20 @@ def data_generate_cell(
 
     edge_counts_per_frame = []
 
+    # Test pyvista availability once (subprocess to avoid hard X11 crash)
+    _use_pyvista = False
+    if visualize and dimension == 3:
+        import subprocess as _sp
+        _test = _sp.run(
+            [sys.executable, "-c",
+             "import os; os.environ['PYVISTA_OFF_SCREEN']='true'; "
+             "import pyvista as pv; pv.OFF_SCREEN=True; "
+             "p=pv.Plotter(off_screen=True); p.close(); print('ok')"],
+            capture_output=True, text=True, timeout=10,
+        )
+        _use_pyvista = _test.returncode == 0 and "ok" in _test.stdout
+        print(f"\033[92m3D plot: using {'pyvista' if _use_pyvista else 'matplotlib'}\033[0m")
+
     time.sleep(0.5)
     for it in trange(sim.start_frame, n_frames + 1, ncols=100):
         # calculate type change
@@ -645,14 +660,9 @@ def data_generate_cell(
 
                     # --- Left panel: 3D view (pyvista → matplotlib fallback) ---
                     _pv_img = None
-                    try:
-                        os.environ.setdefault("PYVISTA_OFF_SCREEN", "true")
+                    if _use_pyvista:
                         import pyvista as pv
                         pv.OFF_SCREEN = True
-                        try:
-                            pv.start_xvfb()
-                        except OSError:
-                            pass
                         plotter = pv.Plotter(off_screen=True, window_size=(900, 900))
                         plotter.set_background("white")
                         for n in range(n_cell_types):
@@ -669,15 +679,10 @@ def data_generate_cell(
                         plotter.camera.zoom(1.1)
                         _pv_img = plotter.screenshot(return_img=True)
                         plotter.close()
-                    except Exception as _pv_err:
-                        if it == 0:
-                            print(f"\033[93m3D plot: pyvista failed ({_pv_err}), using matplotlib fallback\033[0m")
 
                     fig = plt.figure(figsize=(12, 6))
 
                     if _pv_img is not None:
-                        if it == 0:
-                            print("\033[92m3D plot: using pyvista\033[0m")
                         ax1 = fig.add_subplot(121)
                         ax1.imshow(_pv_img)
                         ax1.axis("off")
