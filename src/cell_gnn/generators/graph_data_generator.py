@@ -639,13 +639,31 @@ def data_generate_cell(
                     active_style.savefig(fig, f"{graphs_data_path(dataset_name)}/Fig/Rot_{run}_Fig{it}.jpg")
 
                 elif (mc.cell_model_name in ("arbitrary_ode", "dicty_spring_force_ode")) & (dimension == 3):
-                    from mpl_toolkits.mplot3d.art3d import Line3DCollection
+                    import pyvista as pv
                     from matplotlib.collections import LineCollection as LC
 
-                    fig = plt.figure(figsize=(12, 6))
                     pos_np = to_numpy(x.pos)
 
-                    # prepare edge segments for drawing
+                    # --- Left panel: pyvista 3D view ---
+                    plotter = pv.Plotter(off_screen=True, window_size=(900, 900))
+                    plotter.set_background("white")
+                    for n in range(n_cell_types):
+                        pts = pos_np[to_numpy(index_cells[n])]
+                        if len(pts) > 0:
+                            cloud = pv.PolyData(pts)
+                            color = cmap.color(n)
+                            plotter.add_points(cloud, color=color[:3], point_size=3, opacity=0.6)
+                    cube = pv.Cube(center=(0.5, 0.5, 0.5), x_length=1.0, y_length=1.0, z_length=1.0)
+                    frame = cube.extract_all_edges()
+                    plotter.add_mesh(frame, color='grey', line_width=1.0, opacity=0.5)
+                    plotter.view_vector((0.7, 1.3, 0.5))
+                    plotter.enable_eye_dome_lighting()
+                    plotter.camera.zoom(1.3)
+                    pv_path = f"{graphs_data_path(dataset_name)}/Fig/Fig3D_{run}_{it}.png"
+                    plotter.screenshot(pv_path)
+                    plotter.close()
+
+                    # --- Right panel: matplotlib 2D cross-section ---
                     ei_fwd = None
                     if "edge" in style:
                         ei_np = to_numpy(edge_index)
@@ -655,33 +673,8 @@ def data_generate_cell(
                         no_wrap = np.sqrt((dx ** 2).sum(axis=1)) < max_radius * 1.1
                         ei_fwd = ei_fwd[:, no_wrap]
 
-                    # Left panel: 3D view
-                    ax1 = fig.add_subplot(121, projection="3d")
-                    if ei_fwd is not None:
-                        seg3d = np.stack([pos_np[ei_fwd[0]], pos_np[ei_fwd[1]]], axis=1)
-                        ax1.add_collection3d(Line3DCollection(seg3d, colors='#888888', linewidths=0.5, alpha=0.2))
-                    for n in range(n_cell_types):
-                        ax1.scatter(
-                            to_numpy(x.pos[index_cells[n], 0]),
-                            to_numpy(x.pos[index_cells[n], 1]),
-                            to_numpy(x.pos[index_cells[n], 2]),
-                            s=4,
-                            color=cmap.color(n),
-                            alpha=0.5,
-                            edgecolors="none",
-                        )
-                    ax1.set_xlim([0, 1])
-                    ax1.set_ylim([0, 1])
-                    ax1.set_zlim([0, 1])
-                    ax1.set_xticks([])
-                    ax1.set_yticks([])
-                    ax1.set_zticks([])
-                    ax1.set_xlabel("X", fontsize=8, labelpad=-12)
-                    ax1.set_ylabel("Y", fontsize=8, labelpad=-12)
-                    ax1.set_zlabel("Z", fontsize=8, labelpad=-12)
-
-                    # Right panel: 2D cross-section (z slice at middle)
-                    ax2 = fig.add_subplot(122)
+                    fig = plt.figure(figsize=(6, 6))
+                    ax2 = fig.add_subplot(111)
                     z_center = 0.5
                     z_thickness = 0.1
                     z_vals = pos_np[:, 2]
@@ -712,7 +705,6 @@ def data_generate_cell(
                     ax2.set_aspect("equal")
                     for spine in ax2.spines.values():
                         spine.set_visible(False)
-
                     plt.tight_layout()
                     active_style.savefig(fig, f"{graphs_data_path(dataset_name)}/Fig/Fig_{run}_{it}.png")
 
