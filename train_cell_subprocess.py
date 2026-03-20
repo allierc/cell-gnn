@@ -55,7 +55,8 @@ def main():
             pre_folder = os.path.dirname(args.config_file)
             if pre_folder:
                 pre_folder += '/'
-            config.dataset = pre_folder + config.dataset
+            if not config.dataset.startswith(pre_folder):
+                config.dataset = pre_folder + config.dataset
 
         # Set device
         device = set_device(args.device)
