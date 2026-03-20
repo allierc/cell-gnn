@@ -640,6 +640,7 @@ def data_generate_cell(
 
                 elif (mc.cell_model_name in ("arbitrary_ode", "dicty_spring_force_ode")) & (dimension == 3):
                     import pyvista as pv
+                    pv.start_xvfb()
                     from matplotlib.collections import LineCollection as LC
 
                     pos_np = to_numpy(x.pos)
