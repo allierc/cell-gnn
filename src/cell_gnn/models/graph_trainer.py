@@ -26,6 +26,7 @@ from cell_gnn.sparsify import EmbeddingCluster
 from cell_gnn.generators.utils import choose_model
 from cell_gnn.fitting_models import linear_model
 from cell_gnn.cell_state import CellState, CellTimeSeries, FieldState, FieldTimeSeries
+from cell_gnn.config import CellGNNConfig
 from cell_gnn.zarr_io import load_simulation_data, load_field_data, load_raw_array
 
 from scipy.optimize import curve_fit
