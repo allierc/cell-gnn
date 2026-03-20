@@ -469,9 +469,7 @@ def data_generate_cell(
             pv.OFF_SCREEN = True
             _pv_plotter = pv.Plotter(off_screen=True, window_size=(900, 900))
             _pv_plotter.set_background("white")
-            _pv_plotter.view_vector((0.7, 1.3, 0.5))
             _pv_plotter.enable_eye_dome_lighting()
-            _pv_plotter.camera.zoom(0.85)
 
     time.sleep(0.5)
     for it in trange(sim.start_frame, n_frames + 1, ncols=100):
@@ -679,6 +677,9 @@ def data_generate_cell(
                                 _pv_plotter.add_points(cloud, color=color[:3], point_size=5, render_points_as_spheres=True, opacity=0.6)
                         cube = pv.Cube(center=(0.5, 0.5, 0.5), x_length=1.0, y_length=1.0, z_length=1.0)
                         _pv_plotter.add_mesh(cube.extract_all_edges(), color='grey', line_width=1.0, opacity=0.5)
+                        _pv_plotter.reset_camera()
+                        _pv_plotter.view_vector((0.7, 1.3, 0.5))
+                        _pv_plotter.camera.zoom(1.3)
                         _pv_img = _pv_plotter.screenshot(return_img=True)
 
                     fig = plt.figure(figsize=(12, 6))
