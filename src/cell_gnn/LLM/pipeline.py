@@ -205,7 +205,7 @@ def init_shared_files(state: ExplorationState, is_resume: bool):
             f.write(f"# Working Memory: {state.base_config_name} (parallel)\n\n")
             f.write("## Knowledge Base (accumulated across all blocks)\n\n")
             f.write("### Parameter Comparison Table\n")
-            f.write("| Block | lr | lr_emb | batch | hidden | n_layers | emb_dim | max_r | Best RMSE | psi_R2 | Key finding |\n")
+            f.write("| Block | lr | lr_emb | batch | hidden | n_layers | emb_dim | max_r | Best RMSE | g_phi_R2 | Key finding |\n")
             f.write("| ----- | -- | ------ | ----- | ------ | -------- | ------- | ----- | --------- | ------ | ----------- |\n\n")
             f.write("### Established Principles\n\n")
             f.write("### Open Questions\n\n")
@@ -571,7 +571,7 @@ def update_ucb_scores(state: ExplorationState, batch: BatchInfo):
         with open(slot_log_path, 'r') as f:
             log_content = f.read()
         rmse_m = re.search(r'rollout_RMSE_mean[=:]\s*([\d.eE+-]+|nan)', log_content)
-        psi_m = re.search(r'training_psi_R2[=:]\s*([\d.eE+-]+|nan)', log_content)
+        psi_m = re.search(r'training_g_phi_R2[=:]\s*([\d.eE+-]+|nan)', log_content)
         acc_m = re.search(r'training_accuracy[=:]\s*([\d.eE+-]+|nan)', log_content)
         time_m = re.search(r'training_time_min[=:]\s*([\d.]+)', log_content)
         if rmse_m:
@@ -582,7 +582,7 @@ def update_ucb_scores(state: ExplorationState, batch: BatchInfo):
                 stub_entries += (
                     f"\n## Iter {iteration}: pending\n"
                     f"Node: id={iteration}, parent=root\n"
-                    f"Metrics: rollout_RMSE_mean={rmse_val}, training_psi_R2={psi_val}, "
+                    f"Metrics: rollout_RMSE_mean={rmse_val}, training_g_phi_R2={psi_val}, "
                     f"training_accuracy={acc_val}\n"
                 )
 

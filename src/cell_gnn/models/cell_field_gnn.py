@@ -13,23 +13,23 @@ from cell_gnn.models.registry import register_model
 class CellFieldGNN(nn.Module):
     """GNN for cell dynamics with a continuous field (SIREN).
 
-    Combines pairwise interactions (lin_edge) with a learned spatiotemporal field (model_f).
-    output = lin_edge(delta_pos, delta_vel, a_i, a_j) * field_j
+    Combines pairwise interactions (g_phi) with a learned spatiotemporal field (model_f).
+    output = g_phi(delta_pos, delta_vel, a_i, a_j) * field_j
     """
 
     PARAMS_DOC = {
         "model_name": "CellFieldGNN",
         "description": "GNN for cell dynamics with a continuous field (SIREN). "
-                       "Combines pairwise interactions (lin_edge) with a learned spatiotemporal field (model_f). "
-                       "output = lin_edge(delta_pos, delta_vel, a_i) * field_j",
+                       "Combines pairwise interactions (g_phi) with a learned spatiotemporal field (model_f). "
+                       "output = g_phi(delta_pos, delta_vel, a_i) * field_j",
         "equations": {
-            "message_arbitrary_field": "msg_j = lin_edge(delta_pos / max_r, r / max_r, a_i) * field_j",
-            "message_boids_field": "msg_j = lin_edge(delta_pos / max_r, r / max_r, dpos_i, dpos_j, a_i) * field_j",
+            "message_arbitrary_field": "msg_j = g_phi(delta_pos / max_r, r / max_r, a_i) * field_j",
+            "message_boids_field": "msg_j = g_phi(delta_pos / max_r, r / max_r, dpos_i, dpos_j, a_i) * field_j",
             "field": "field(t) = model_f(t / T)^2  (SIREN network, squared output)",
             "update_linear": "acceleration = lin_update(aggr(messages), dpos, a_i)",
         },
         "graph_model_config": {
-            "lin_edge (MLP0)": {
+            "g_phi (edge message MLP)": {
                 "description": "Pairwise interaction function, multiplied by field value at source",
                 "input_size": {
                     "arbitrary_field_ode": "dimension + 1 + embedding_dim  (delta_pos, r, a_i)",
@@ -100,7 +100,7 @@ class CellFieldGNN(nn.Module):
             case _:
                 self.input_size = model_config.input_size
 
-        self.lin_edge = MLP(input_size=self.input_size, output_size=self.output_size, nlayers=self.n_layers,
+        self.g_phi = MLP(input_size=self.input_size, output_size=self.output_size, nlayers=self.n_layers,
                                 hidden_size=self.hidden_dim, device=self.device)
 
         self.a = nn.Parameter(
@@ -186,7 +186,7 @@ class CellFieldGNN(nn.Module):
                         (delta_pos, r[:, None], dpos_x_i[:, None], dpos_y_i[:, None], dpos_x_j[:, None],
                          dpos_y_j[:, None], embedding_i), dim=-1)
 
-        out = self.lin_edge(in_features) * field_j
+        out = self.g_phi(in_features) * field_j
 
         return out
 

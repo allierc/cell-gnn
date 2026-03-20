@@ -186,7 +186,7 @@ class GraphModelConfig(BaseModel):
     hidden_dim: int = 1
     n_layers: int = 1
 
-    lin_edge_positive: bool = False
+    g_phi_positive: bool = False
 
     aggr_type: str
 

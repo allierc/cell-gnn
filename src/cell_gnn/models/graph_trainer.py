@@ -208,10 +208,10 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
     metrics_log_path = os.path.join(log_dir, 'tmp_training', 'metrics.log')
     os.makedirs(os.path.dirname(metrics_log_path), exist_ok=True)
     with open(metrics_log_path, 'w') as f:
-        f.write('epoch,iteration,lin_edge_r2,loss\n')
+        f.write('epoch,iteration,g_phi_r2,loss\n')
 
-    last_lin_edge_r2 = None
-    last_lin_edge_r2_std = None
+    last_g_phi_r2 = None
+    last_g_phi_r2_std = None
     train_start = time.time()
     time.sleep(1)
 
@@ -373,10 +373,10 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
             if N % plot_frequency == 0:
                 avg_loss = total_loss / (N + 1) / n_cells
                 postfix = f'loss={avg_loss:.6f}'
-                if last_lin_edge_r2 is not None:
-                    c = r2_color(last_lin_edge_r2)
-                    std_str = f'±{last_lin_edge_r2_std:.3f}' if last_lin_edge_r2_std is not None else ''
-                    postfix += f' {c}R²={last_lin_edge_r2:.3f}{std_str}{ANSI_RESET}'
+                if last_g_phi_r2 is not None:
+                    c = r2_color(last_g_phi_r2)
+                    std_str = f'±{last_g_phi_r2_std:.3f}' if last_g_phi_r2_std is not None else ''
+                    postfix += f' {c}R²={last_g_phi_r2:.3f}{std_str}{ANSI_RESET}'
                 pbar.set_postfix_str(postfix)
                 logger.info(f'Epoch {epoch}  iter {N + 1}  avg loss: {avg_loss:.6f}')
 
@@ -385,16 +385,16 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
             if (N % plot_frequency == 0):
                 loss_dict['loss'].append(loss.item() / n_cells)
                 plot_loss_components(loss_dict, regularizer.get_history(), log_dir, epoch=epoch, Niter=Niter)
-                lin_edge_r2, lin_edge_r2_std = plot_training(config=config, pred=pred, gt=y_batch, log_dir=log_dir,
+                g_phi_r2, g_phi_r2_std = plot_training(config=config, pred=pred, gt=y_batch, log_dir=log_dir,
                               epoch=epoch, N=N, x=x_plot, model=model, n_nodes=0, n_node_types=0, index_nodes=0,
                               dataset_num=1,
                               index_cells=index_cells, n_cells=n_cells,
                               n_cell_types=n_cell_types, ynorm=ynorm, cmap=cmap, axis=True, device=device)
-                if lin_edge_r2 is not None:
-                    last_lin_edge_r2 = lin_edge_r2
-                    last_lin_edge_r2_std = lin_edge_r2_std
+                if g_phi_r2 is not None:
+                    last_g_phi_r2 = g_phi_r2
+                    last_g_phi_r2_std = g_phi_r2_std
                     with open(metrics_log_path, 'a') as f:
-                        f.write(f'{epoch},{N},{lin_edge_r2:.6f},{loss.item() / n_cells:.6f}\n')
+                        f.write(f'{epoch},{N},{g_phi_r2:.6f},{loss.item() / n_cells:.6f}\n')
                 torch.save({'model_state_dict': model.state_dict(), 'optimizer_state_dict': optimizer.state_dict()},
                            os.path.join(log_dir, 'models', f'best_model_with_{n_runs - 1}_graphs_{epoch}_{N}.pt'))
                 if has_field:
@@ -411,14 +411,14 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
                    os.path.join(log_dir, 'models', f'best_model_with_{n_runs - 1}_graphs_{epoch}.pt'))
 
         r2_str = ''
-        if last_lin_edge_r2 is not None:
-            c = r2_color(last_lin_edge_r2)
-            std_str = f'±{last_lin_edge_r2_std:.4f}' if last_lin_edge_r2_std is not None else ''
-            r2_str = f'  {c}lin_edge_R2: {last_lin_edge_r2:.4f}{std_str}{ANSI_RESET}'
+        if last_g_phi_r2 is not None:
+            c = r2_color(last_g_phi_r2)
+            std_str = f'±{last_g_phi_r2_std:.4f}' if last_g_phi_r2_std is not None else ''
+            r2_str = f'  {c}g_phi_R2: {last_g_phi_r2:.4f}{std_str}{ANSI_RESET}'
         print("Epoch {}. loss: {:.6f}  regul: {:.6f}{}".format(epoch, total_loss / n_cells, total_loss_regul / n_cells, r2_str))
         logger.info("epoch {}. Loss: {:.6f}  regul: {:.6f}".format(epoch, total_loss / n_cells, total_loss_regul / n_cells))
-        if last_lin_edge_r2 is not None:
-            logger.info(f"lin_edge_R2: {last_lin_edge_r2:.6f}")
+        if last_g_phi_r2 is not None:
+            logger.info(f"g_phi_R2: {last_g_phi_r2:.6f}")
         list_loss.append(total_loss / n_cells)
         torch.save(list_loss, os.path.join(log_dir, 'loss.pt'))
 
@@ -470,7 +470,7 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
                 N_feat, n_pts, input_dim = features.shape
                 for sub_epochs in range(20):
                     optimizer.zero_grad()
-                    pred_flat = model.lin_edge(features.reshape(N_feat * n_pts, input_dim).float())
+                    pred_flat = model.g_phi(features.reshape(N_feat * n_pts, input_dim).float())
                     pred = pred_flat.reshape(N_feat, n_pts, -1)
                     loss = (pred[:, :, 0] - y_func_list.clone().detach()).norm(2)
                     logger.info(f'    loss: {np.round(loss.item() / n_cells, 3)}')
@@ -508,8 +508,8 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
     if log_file:
         log_file.write(f"training_final_loss={total_loss / n_cells:.6f}\n")
         log_file.write(f"training_accuracy={accuracy:.4f}\n")
-        if last_lin_edge_r2 is not None:
-            log_file.write(f"training_lin_edge_R2={last_lin_edge_r2:.6f}\n")
+        if last_g_phi_r2 is not None:
+            log_file.write(f"training_g_phi_R2={last_g_phi_r2:.6f}\n")
         log_file.write(f"training_time_min={training_time:.1f}\n")
 
 
@@ -1413,7 +1413,7 @@ def data_train_cell_field(config, erase, best_model, device, log_file=None):
                 N_feat, n_pts, input_dim = features.shape
                 for sub_epochs in range(20):
                     optimizer.zero_grad()
-                    pred_flat = model.lin_edge(features.reshape(N_feat * n_pts, input_dim).float())
+                    pred_flat = model.g_phi(features.reshape(N_feat * n_pts, input_dim).float())
                     pred = pred_flat.reshape(N_feat, n_pts, -1)
                     loss = (pred[:, :, 0] - y_func_list.clone().detach()).norm(2)
                     logger.info(f'    loss: {np.round(loss.item() / n_cells, 3)}')

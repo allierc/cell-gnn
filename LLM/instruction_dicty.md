@@ -8,19 +8,19 @@ Primary metric: `rollout_RMSE_mean` (lower is better)
 
 **Training time constraint**: Training should complete in **less than 60 minutes** if possible. Prefer configurations that achieve good RMSE within this budget.
 
-**Note on psi_R2**: The `training_psi_R2` metric is **not applicable** for dicty because there are no ground truth interaction functions to compare against. Do not use psi_R2 for evaluating or classifying runs.
+**Note on g_phi_R2**: The `training_g_phi_R2` metric is **not applicable** for dicty because there are no ground truth interaction functions to compare against. Do not use g_phi_R2 for evaluating or classifying runs.
 
 ## Cell-GNN Model
 
 The Cell-GNN learns pairwise interaction functions from cell trajectories:
 ```
-acceleration_i = aggr_j(lin_edge(delta_pos_ij / max_r, r / max_r, a_i)) * ynorm
+acceleration_i = aggr_j(g_phi(delta_pos_ij / max_r, r / max_r, a_i)) * ynorm
 ```
 
 - **Simulation**: 1000 cells, 1 cell type, 10000 frames, delta_t=0.002
 - **Spatial**: 3D, periodic boundary, max_radius=0.2
 - **Physics**: Arbitrary pair force function (Gaussian repulsion/attraction)
-- **GNN**: Embedding per cell (dim=2), MLP0 (lin_edge) learns interaction, mean aggregation
+- **GNN**: Embedding per cell (dim=2), g_phi (edge message MLP) learns interaction, mean aggregation
 
 ### PARAMS_DOC Reference
 See `CellGNN.PARAMS_DOC` in `src/cell_gnn/models/cell_gnn.py` for detailed model documentation.
@@ -31,7 +31,7 @@ See `CellGNN.PARAMS_DOC` in `src/cell_gnn/models/cell_gnn.py` for detailed model
 |--------|--------|--------|-------------|
 | `rollout_RMSE_mean` | test results | Lower | Mean position RMSE across rollout steps (PRIMARY) |
 | `rollout_RMSE_final` | test results | Lower | RMSE at final rollout step |
-| `training_psi_R2` | training log | N/A | **Not applicable** — no ground truth interaction function for dicty |
+| `training_g_phi_R2` | training log | N/A | **Not applicable** — no ground truth interaction function for dicty |
 | `training_accuracy` | training log | Higher | Clustering accuracy of learned embeddings |
 | `training_final_loss` | training log | Lower | Final epoch training loss |
 | `training_time_min` | training log | Lower | Training duration in minutes (target: < 60 min) |
@@ -50,8 +50,8 @@ See `CellGNN.PARAMS_DOC` in `src/cell_gnn/models/cell_gnn.py` for detailed model
 | `learning_rate_embedding_start` | training.learning_rate_embedding_start | 1E-5 | LR for cell embeddings | [1E-6, 1E-4] |
 | `batch_size` | training.batch_size | 8 | Frames per gradient step | [1, 16] |
 | `data_augmentation_loop` | training.data_augmentation_loop | 100 | Data augmentation multiplier | [10, 200] |
-| `hidden_dim` | graph_model.hidden_dim | 128 | MLP0 hidden layer width | [64, 256] |
-| `n_layers` | graph_model.n_layers | 5 | MLP0 depth | [3, 7] |
+| `hidden_dim` | graph_model.hidden_dim | 128 | g_phi hidden layer width | [64, 256] |
+| `n_layers` | graph_model.n_layers | 5 | g_phi depth | [3, 7] |
 | `embedding_dim` | graph_model.embedding_dim | 2 | Cell embedding dimension | [1, 8] |
 | `aggr_type` | graph_model.aggr_type | mean | Message aggregation: mean, add, max | - |
 | `coeff_edge_diff` | training.coeff_edge_diff | 0 | Edge similarity regularizer | [0, 100] |

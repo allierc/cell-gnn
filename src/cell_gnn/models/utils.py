@@ -115,7 +115,7 @@ def set_trainable_parameters(model=[], lr_embedding=[], lr=[], lr_update=[], lr_
         if (parameter.requires_grad) & (name != 'a'):
             if (name == 'b') or ('lin_modulation' in name):
                 optimizer.add_param_group({'params': parameter, 'lr': lr_modulation})
-            elif 'lin_phi' in name:
+            elif 'f_theta' in name:
                 optimizer.add_param_group({'params': parameter, 'lr': lr_update})
             elif 'W' in name:
                 optimizer.add_param_group({'params': parameter, 'lr': lr_W})
@@ -133,7 +133,7 @@ class LossRegularizer:
     """Handles regularization terms, history tracking, and per-component loss recording.
 
     Adapted from flyvis-gnn's LossRegularizer for cell-gnn models that have
-    ``model.a`` (embedding) and ``model.lin_edge`` (edge MLP).
+    ``model.a`` (embedding) and ``model.g_phi`` (edge MLP).
 
     Components tracked: edge_weight, edge_diff, edge_norm, continuous.
     """
@@ -181,9 +181,9 @@ class LossRegularizer:
         sim = self.sim
         total_regul = torch.tensor(0.0, device=device)
 
-        # --- edge_weight: L1 on lin_edge parameters ---
+        # --- edge_weight: L1 on g_phi parameters ---
         if tc.coeff_edge_weight > 0:
-            for param in model.lin_edge.parameters():
+            for param in model.g_phi.parameters():
                 regul_term = param.norm(1) * tc.coeff_edge_weight
                 total_regul = total_regul + regul_term
                 self._add('edge_weight', regul_term)
@@ -204,8 +204,8 @@ class LossRegularizer:
                                             model_name=mc.cell_model_name,
                                             max_radius=sim.max_radius,
                                             dimension=sim.dimension)
-                msg0 = model.lin_edge(feat0)
-                msg1 = model.lin_edge(feat1)
+                msg0 = model.g_phi(feat0)
+                msg1 = model.g_phi(feat1)
                 regul_term = torch.relu(msg0 - msg1).norm(2) * tc.coeff_edge_diff
                 total_regul = total_regul + regul_term
                 self._add('edge_diff', regul_term)
@@ -221,7 +221,7 @@ class LossRegularizer:
                                            model_name=mc.cell_model_name,
                                            max_radius=sim.max_radius,
                                            dimension=sim.dimension)
-                msg_norm = model.lin_edge(feat)
+                msg_norm = model.g_phi(feat)
                 regul_term = msg_norm.norm(2) * tc.coeff_edge_norm
                 total_regul = total_regul + regul_term
                 self._add('edge_norm', regul_term)
@@ -238,12 +238,12 @@ class LossRegularizer:
                                             model_name=mc.cell_model_name,
                                             max_radius=sim.max_radius,
                                             dimension=sim.dimension)
-                func1 = model.lin_edge(feat1)
+                func1 = model.g_phi(feat1)
                 feat0 = build_edge_features(rr=rr, embedding=embedding_,
                                             model_name=mc.cell_model_name,
                                             max_radius=sim.max_radius,
                                             dimension=sim.dimension)
-                func0 = model.lin_edge(feat0)
+                func0 = model.g_phi(feat0)
                 grad = func1 - func0
                 regul_term = tc.coeff_continuous * grad.norm(2)
                 total_regul = total_regul + regul_term

@@ -1,6 +1,6 @@
 """Clustering hyperparameter tuner for trained particle-gnn models.
 
-Loads a trained model, extracts embeddings and MLP1 interaction curves,
+Loads a trained model, extracts embeddings and g_phi interaction curves,
 and sweeps UMAP + blind clustering hyperparameters (no k given) to find
 a single method that works across configs.
 
@@ -52,7 +52,7 @@ def hungarian_accuracy(true_labels, cluster_labels):
 
 
 def extract_features(model, config, device):
-    """Extract embedding and MLP1 curves from a trained model."""
+    """Extract embedding and g_phi curves from a trained model."""
     sim = config.simulation
     dataset_name = config.dataset
     dimension = sim.dimension
@@ -84,7 +84,7 @@ def extract_features(model, config, device):
         all_embeddings = model.a[:n_particles, :]
 
     func_list = _batched_mlp_eval(
-        model.lin_edge, all_embeddings, rr,
+        model.g_phi, all_embeddings, rr,
         config_model, mlp_max_radius, device
     )
     func_list_np = to_numpy(func_list)

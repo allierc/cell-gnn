@@ -365,8 +365,8 @@ def create_log_dir(config=[], erase=True):
     os.makedirs(os.path.join(log_dir, 'tmp_training/matrix'), exist_ok=True)
     os.makedirs(os.path.join(log_dir, 'tmp_training/prediction'), exist_ok=True)
     os.makedirs(os.path.join(log_dir, 'tmp_training/function'), exist_ok=True)
-    os.makedirs(os.path.join(log_dir, 'tmp_training/function/MLP0'), exist_ok=True)
-    os.makedirs(os.path.join(log_dir, 'tmp_training/function/MLP1'), exist_ok=True)
+    os.makedirs(os.path.join(log_dir, 'tmp_training/function/f_theta'), exist_ok=True)
+    os.makedirs(os.path.join(log_dir, 'tmp_training/function/g_phi'), exist_ok=True)
     os.makedirs(os.path.join(log_dir, 'tmp_training/embedding'), exist_ok=True)
     os.makedirs(os.path.join(log_dir, 'tmp_training/edges_embedding'), exist_ok=True)
     if config.training.n_ghosts > 0:
@@ -389,10 +389,10 @@ def create_log_dir(config=[], erase=True):
         files = glob.glob(f"{log_dir}/tmp_training/matrix/*")
         for f in files:
             os.remove(f)
-        files = glob.glob(f"{log_dir}/tmp_training/function/MLP1/*")
+        files = glob.glob(f"{log_dir}/tmp_training/function/g_phi/*")
         for f in files:
             os.remove(f)
-        files = glob.glob(f"{log_dir}/tmp_training/function/MLP0s/*")
+        files = glob.glob(f"{log_dir}/tmp_training/function/f_theta/*")
         for f in files:
             os.remove(f)
         files = glob.glob(f"{log_dir}/tmp_training/embedding/*")

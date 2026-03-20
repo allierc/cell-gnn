@@ -12,22 +12,22 @@ from cell_gnn.models.registry import register_model
 class CellGNN(nn.Module):
     """Interaction Network for cell dynamics — learns pairwise interaction from relative positions/velocities.
 
-    acceleration_i = aggr_j(lin_edge(delta_pos, delta_vel, a_i, a_j)) * ynorm
+    acceleration_i = aggr_j(g_phi(delta_pos, delta_vel, a_i, a_j)) * ynorm
     """
 
     PARAMS_DOC = {
         "model_name": "CellGNN",
         "description": "GNN for cell dynamics — learns pairwise interaction from relative positions/velocities. "
-                       "acceleration_i = aggr_j(lin_edge(delta_pos, delta_vel, a_i, a_j)) * ynorm",
+                       "acceleration_i = aggr_j(g_phi(delta_pos, delta_vel, a_i, a_j)) * ynorm",
         "equations": {
-            "message_arbitrary": "msg_j = lin_edge(delta_pos_ij / max_r, r / max_r, a_i)",
-            "message_boids": "msg_j = lin_edge(delta_pos_ij / max_r, r / max_r, dpos_i / vnorm, dpos_j / vnorm, a_i)",
-            "message_gravity": "msg_j = lin_edge(delta_pos_ij / max_r, r / max_r, dpos_i / vnorm, dpos_j / vnorm, a_j)",
+            "message_arbitrary": "msg_j = g_phi(delta_pos_ij / max_r, r / max_r, a_i)",
+            "message_boids": "msg_j = g_phi(delta_pos_ij / max_r, r / max_r, dpos_i / vnorm, dpos_j / vnorm, a_i)",
+            "message_gravity": "msg_j = g_phi(delta_pos_ij / max_r, r / max_r, dpos_i / vnorm, dpos_j / vnorm, a_j)",
             "update_none": "acceleration = aggr(messages) * ynorm",
-            "update_mlp": "acceleration = lin_phi(aggr(messages), a_i, dpos / vnorm) * ynorm",
+            "update_mlp": "acceleration = f_theta(aggr(messages), a_i, dpos / vnorm) * ynorm",
         },
         "graph_model_config": {
-            "lin_edge (MLP0)": {
+            "g_phi (edge message MLP)": {
                 "description": "Pairwise interaction function — force from relative state",
                 "input_size": {
                     "arbitrary_ode": "dimension + 1 + embedding_dim  (delta_pos, r, a_i)",
@@ -38,7 +38,7 @@ class CellGNN(nn.Module):
                 "hidden_dim": {"typical_range": [64, 256], "default": 128},
                 "n_layers": {"typical_range": [3, 7], "default": 5},
             },
-            "lin_phi (MLP1, update_type='mlp')": {
+            "f_theta (node update MLP, update_type='mlp')": {
                 "description": "Node update — acceleration from aggregated messages + embedding + velocity",
                 "input_size_update": "output_size + embedding_dim + dimension",
                 "hidden_dim_update": {"typical_range": [32, 128], "default": 64},
@@ -55,7 +55,7 @@ class CellGNN(nn.Module):
             "batch_size": {"description": "Frames per gradient step", "typical_range": [1, 16]},
             "data_augmentation_loop": {"description": "Iterations = n_frames * aug_loop / batch_size"},
             "coeff_edge_diff": {"description": "Same-type edge similarity penalty", "typical_range": [0, 100]},
-            "coeff_edge_norm": {"description": "Monotonicity penalty on lin_edge", "typical_range": [0, 10]},
+            "coeff_edge_norm": {"description": "Monotonicity penalty on g_phi", "typical_range": [0, 10]},
             "recursive_training": {"description": "Enable multi-step unrolling during training"},
             "recursive_loop": {"description": "Number of recurrent unroll steps", "typical_range": [0, 8]},
         },
@@ -105,7 +105,7 @@ class CellGNN(nn.Module):
             case _:
                 self.input_size = model_config.input_size
 
-        # Auto-compute input_size_update for MLP1
+        # Auto-compute input_size_update for f_theta
         if self.update_type != 'none':
             self.input_size_update = self.dimension + self.embedding_dim + self.output_size
         else:
@@ -126,12 +126,12 @@ class CellGNN(nn.Module):
         self.n_ghosts = int(train_config.n_ghosts)
 
 
-        # self.lin_edge = FusedMLP(in_dim=self.input_size, hidden_dim=self.hidden_dim, out_dim=self.output_size, n_hidden=self.n_layers, activation='ReLU', output_activation=None, device=self.device)
+        # self.g_phi = FusedMLP(in_dim=self.input_size, hidden_dim=self.hidden_dim, out_dim=self.output_size, n_hidden=self.n_layers, activation='ReLU', output_activation=None, device=self.device)
 
-        self.lin_edge = MLP(input_size=self.input_size, output_size=self.output_size, nlayers=self.n_layers, hidden_size=self.hidden_dim, device=self.device)
+        self.g_phi = MLP(input_size=self.input_size, output_size=self.output_size, nlayers=self.n_layers, hidden_size=self.hidden_dim, device=self.device)
 
         if self.update_type == 'mlp':
-            self.lin_phi = MLP(input_size=self.input_size_update, output_size=self.output_size_update,
+            self.f_theta = MLP(input_size=self.input_size_update, output_size=self.output_size_update,
                                nlayers=self.n_layers_update,
                                hidden_size=self.hidden_dim_update, device=self.device)
 
@@ -212,9 +212,9 @@ class CellGNN(nn.Module):
 
         if self.update_type == 'mlp':
             if has_field:
-                out = self.lin_phi(torch.cat((out, embedding, d_pos, field), dim=-1))
+                out = self.f_theta(torch.cat((out, embedding, d_pos, field), dim=-1))
             else:
-                out = self.lin_phi(torch.cat((out, embedding, d_pos), dim=-1))
+                out = self.f_theta(torch.cat((out, embedding, d_pos), dim=-1))
         if self.rotation_augmentation & self.training:
             d = self.dimension
             out[:, :d] = out[:, :d] @ self.rotation_matrix.T
@@ -244,7 +244,7 @@ class CellGNN(nn.Module):
             case 'gravity_ode':
                 in_features = torch.cat((delta_pos, r[:, None], d_pos_i, d_pos_j, embedding_j), dim=-1)
 
-        out = self.lin_edge(in_features)
+        out = self.g_phi(in_features)
 
         if self.training==False:
             if out.shape[0] == 0:

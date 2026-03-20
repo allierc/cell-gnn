@@ -175,7 +175,7 @@ class FigureStyle:
     ) -> Tuple[Figure, Union[Axes, np.ndarray]]:
         """Create a figure sized and styled for the epoch montage (Fig_N.tif).
 
-        All standalone panels (embedding, MLP1, loss, UMAP) that get loaded
+        All standalone panels (embedding, g_phi, loss, UMAP) that get loaded
         into the 2x2 montage should use this method so that figure height,
         tick sizes, and label sizes are identical across panels.
 

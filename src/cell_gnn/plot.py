@@ -283,10 +283,10 @@ def analyze_edge_function(rr=[], vizualize=False, config=None, model_MLP=[], mod
 # --------------------------------------------------------------------------- #
 
 def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, n_cell_types, model, n_nodes, n_node_types, index_nodes, dataset_num, ynorm, cmap, axis, device):
-    """Plot training diagnostics. Returns (lin_edge_r2_mean, lin_edge_r2_std) or (None, None)."""
+    """Plot training diagnostics. Returns (g_phi_r2_mean, g_phi_r2_std) or (None, None)."""
 
-    lin_edge_r2 = None
-    lin_edge_r2_std = None
+    g_phi_r2 = None
+    g_phi_r2_std = None
     style = default_style
     simulation_config = config.simulation
     train_config = config.training
@@ -398,7 +398,7 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
                 for start in range(0, n_pairs, chunk_size):
                     end = min(start + chunk_size, n_pairs)
                     feat_flat = features[start:end].reshape(-1, features.shape[-1])
-                    out = model.lin_edge(feat_flat.float())[:, 0]
+                    out = model.g_phi(feat_flat.float())[:, 0]
                     funcs.append(out.reshape(end - start, n_pts))
             funcs = torch.cat(funcs, dim=0)  # (n_pairs, n_pts)
             all_funcs.append(funcs)
@@ -428,7 +428,7 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
                 color=style.foreground, alpha=0.7)
 
         plt.tight_layout()
-        style.savefig(fig, f"{log_dir}/tmp_training/function/MLP1/function_{epoch}_{N}.png")
+        style.savefig(fig, f"{log_dir}/tmp_training/function/g_phi/function_{epoch}_{N}.png")
     else:
         match model_config.cell_model_name:
 
@@ -446,7 +446,7 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
                 else:
                     all_embeddings = model.a[0, :n_cells, :]
 
-                func_list = _batched_mlp_eval(model.lin_edge, all_embeddings, rr,
+                func_list = _batched_mlp_eval(model.g_phi, all_embeddings, rr,
                                               config.graph_model.cell_model_name,
                                               simulation_config.max_radius, device,
                                               dimension=simulation_config.dimension)
@@ -465,16 +465,16 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
 
                 # Plot true psi curves on top (thick)
                 true_curves = _get_true_psi(rr, config, n_cell_types, device)
-                _plot_true_lin_edge(ax, rr_np, true_curves, cmap, sign_flip=sign_flip)
+                _plot_true_g_phi(ax, rr_np, true_curves, cmap, sign_flip=sign_flip)
 
                 # Per-curve R² metric
                 r2_values = _compute_curve_r2(to_numpy(func_list), type_arr, true_curves, ynorm=ynorm_np)
                 if r2_values is not None:
                     valid = r2_values[~np.isnan(r2_values)]
                     if len(valid) > 0:
-                        lin_edge_r2 = float(valid.mean())
-                        lin_edge_r2_std = float(valid.std())
-                        ax.text(0.02, 0.98, f'R²={lin_edge_r2:.3f}±{lin_edge_r2_std:.3f}',
+                        g_phi_r2 = float(valid.mean())
+                        g_phi_r2_std = float(valid.std())
+                        ax.text(0.02, 0.98, f'R²={g_phi_r2:.3f}±{g_phi_r2_std:.3f}',
                                 transform=ax.transAxes, verticalalignment='top',
                                 fontsize=style.font_size,
                                 color=style.foreground)
@@ -499,9 +499,9 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
                         fontsize=style.font_size * 0.8,
                         color=style.foreground, alpha=0.7)
                 style.montage_xlabel(ax, r'$r$')
-                style.montage_ylabel(ax, r'learned $\mathrm{MLP}_1$')
+                style.montage_ylabel(ax, r'learned $g_\phi$')
                 plt.tight_layout()
-                style.savefig(fig, f"{log_dir}/tmp_training/function/MLP1/function_{epoch}_{N}.png")
+                style.savefig(fig, f"{log_dir}/tmp_training/function/g_phi/function_{epoch}_{N}.png")
 
             case 'boids_ode' | 'boids_field_ode':
                 max_radius_plot = 0.04
@@ -514,7 +514,7 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
                 else:
                     all_embeddings = model.a[0, :n_cells, :]
 
-                func_list = _batched_mlp_eval(model.lin_edge, all_embeddings, rr,
+                func_list = _batched_mlp_eval(model.g_phi, all_embeddings, rr,
                                               config.graph_model.cell_model_name,
                                               max_radius_plot, device,
                                               dimension=simulation_config.dimension)
@@ -529,16 +529,16 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
 
                 # Plot true psi curves on top (thick)
                 true_curves = _get_true_psi(rr, config, n_cell_types, device)
-                _plot_true_lin_edge(ax, rr_np, true_curves, cmap, sign_flip=sign_flip)
+                _plot_true_g_phi(ax, rr_np, true_curves, cmap, sign_flip=sign_flip)
 
                 # Per-curve R² metric
                 r2_values = _compute_curve_r2(to_numpy(func_list), type_arr, true_curves, ynorm=ynorm_np)
                 if r2_values is not None:
                     valid = r2_values[~np.isnan(r2_values)]
                     if len(valid) > 0:
-                        lin_edge_r2 = float(valid.mean())
-                        lin_edge_r2_std = float(valid.std())
-                        ax.text(0.02, 0.98, f'R²={lin_edge_r2:.3f}±{lin_edge_r2_std:.3f}',
+                        g_phi_r2 = float(valid.mean())
+                        g_phi_r2_std = float(valid.std())
+                        ax.text(0.02, 0.98, f'R²={g_phi_r2:.3f}±{g_phi_r2_std:.3f}',
                                 transform=ax.transAxes, verticalalignment='top',
                                 fontsize=style.font_size,
                                 color=style.foreground)
@@ -568,11 +568,11 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
                         fontsize=style.font_size * 0.8,
                         color=style.foreground, alpha=0.7)
                 style.montage_xlabel(ax, r'$r$')
-                style.montage_ylabel(ax, r'learned $\mathrm{MLP}_1$')
+                style.montage_ylabel(ax, r'learned $g_\phi$')
                 plt.tight_layout()
-                style.savefig(fig, f"{log_dir}/tmp_training/function/MLP1/function_{epoch}_{N}.png")
+                style.savefig(fig, f"{log_dir}/tmp_training/function/g_phi/function_{epoch}_{N}.png")
 
-    return lin_edge_r2, lin_edge_r2_std
+    return g_phi_r2, g_phi_r2_std
 
 
 # --------------------------------------------------------------------------- #
@@ -640,7 +640,7 @@ def plot_training_cell_field(config, has_siren, has_siren_time, model_f, n_frame
 
     # Vectorized: all neurons at once
     all_embeddings = model.a[dataset_num, :n_neurons, :]  # (N, embed_dim)
-    func_list = _batched_mlp_eval(model.lin_edge, all_embeddings, rr,
+    func_list = _batched_mlp_eval(model.g_phi, all_embeddings, rr,
                                   model_config.cell_model_name,
                                   max_radius, device,
                                   dimension=simulation_config.dimension)
@@ -663,7 +663,7 @@ def plot_training_cell_field(config, has_siren, has_siren_time, model_f, n_frame
             color=style.foreground, alpha=0.7)
 
     plt.tight_layout()
-    style.savefig(fig, f"{log_dir}/tmp_training/function/MLP1/{model_name}_function_{epoch}_{N}.png")
+    style.savefig(fig, f"{log_dir}/tmp_training/function/g_phi/{model_name}_function_{epoch}_{N}.png")
 
     # --- Siren field visualization ---
     if has_siren:
@@ -713,7 +713,7 @@ def batched_sparsity_mlp_eval(model, rr, n_cells, config, device):
 
     # Flatten, run MLP, reshape
     features_flat = features.reshape(N * n_pts, input_dim)
-    pred_flat = model.lin_edge(features_flat.float())  # (N * n_pts, output_dim)
+    pred_flat = model.g_phi(features_flat.float())  # (N * n_pts, output_dim)
     output_dim = pred_flat.shape[1]
     pred = pred_flat.reshape(N, n_pts, output_dim)
 
@@ -762,7 +762,7 @@ def _get_true_psi(rr, config, n_cell_types, device):
     return true_curves
 
 
-def _plot_true_lin_edge(ax, rr_np, true_curves, cmap, sign_flip=1.0):
+def _plot_true_g_phi(ax, rr_np, true_curves, cmap, sign_flip=1.0):
     """Plot true psi curves on top of predicted (thick, per-type color)."""
     for n, psi_np in true_curves.items():
         ax.plot(rr_np, psi_np * sign_flip, color=cmap.color(n), linewidth=6, alpha=0.5)
@@ -802,7 +802,7 @@ def _compute_curve_r2(func_list_np, type_arr, true_curves, ynorm=1.0):
 
 
 def _add_r2_scatter_inset(ax, func_list_np, type_arr, true_curves, ynorm=1.0, cmap=None, style=None):
-    """Add a small scatter inset (top-right) showing true vs predicted MLP1 values."""
+    """Add a small scatter inset (top-right) showing true vs predicted g_phi values."""
     if not true_curves:
         return
     ynorm_val = float(ynorm) if np.isscalar(ynorm) else np.asarray(ynorm)
@@ -850,13 +850,13 @@ def plot_training_summary_panels(fig, log_dir, model, config, n_cells, n_cell_ty
                                  loss_dict=None, regul_history=None):
     """Assemble epoch summary by loading saved plots and adding a UMAP panel.
 
-    Panels 1-3 load images from tmp_training (embedding, MLP1, loss).
+    Panels 1-3 load images from tmp_training (embedding, g_phi, loss).
     Panel 4 draws UMAP of interaction functions directly.
 
     Args:
         fig: matplotlib Figure (2x2 subplots will be added).
         log_dir: path to the training log directory.
-        model: trained GNN model (must have ``model.a`` and ``model.lin_edge``).
+        model: trained GNN model (must have ``model.a`` and ``model.g_phi``).
         config: CellGNNConfig.
         n_cells: int.
         n_cell_types: int.
@@ -907,7 +907,7 @@ def plot_training_summary_panels(fig, log_dir, model, config, n_cells, n_cell_ty
 
     # --- Panels 1-3: load saved images ---
     _load_panel(fig, 1, f"{log_dir}/tmp_training/embedding/{last_epoch_N}.png")
-    _load_panel(fig, 2, f"{log_dir}/tmp_training/function/MLP1/function_{last_epoch_N}.png")
+    _load_panel(fig, 2, f"{log_dir}/tmp_training/function/g_phi/function_{last_epoch_N}.png")
     _load_panel(fig, 3, f"{log_dir}/tmp_training/loss.png")
 
     # --- Compute func_list for UMAP and sparsity ---
@@ -924,7 +924,7 @@ def plot_training_summary_panels(fig, log_dir, model, config, n_cells, n_cell_ty
 
     func_list, _ = analyze_edge_function(
         rr=rr, vizualize=False, config=config,
-        model_MLP=model.lin_edge, model=model,
+        model_MLP=model.g_phi, model=model,
         n_nodes=0, n_cells=n_cells, ynorm=ynorm,
         type_list=to_numpy(type_list), cmap=cmap,
         update_type='NA', device=device)
@@ -972,7 +972,7 @@ def plot_training_summary_panels(fig, log_dir, model, config, n_cells, n_cell_ty
     style.montage_xlabel(ax_umap, 'UMAP 0')
     style.montage_ylabel(ax_umap, 'UMAP 1')
     style.montage_annotate(ax_umap,
-                           'UMAP of learned $\\mathrm{MLP}_1$ curves\n'
+                           'UMAP of learned $g_\\phi$ curves\n'
                            f'input: {func_list.shape[1]} radial samples per cell\n'
                            f'n_neighbors={n_neighbors}  min_dist={min_dist}',
                            (0.02, 0.98), verticalalignment='top')

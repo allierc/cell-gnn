@@ -785,18 +785,18 @@ def compute_ucb_scores(analysis_path, ucb_path, c=1.0, current_log_path=None, cu
                 current_node['mutation'] = mutation_match.group(1).strip()
                 continue
 
-            # Match Metrics line for rollout_RMSE_mean, training_lin_edge_R2, training_accuracy, and training_final_loss
+            # Match Metrics line for rollout_RMSE_mean, training_g_phi_R2, training_accuracy, and training_final_loss
             metrics_match = re.search(r'rollout_RMSE_mean=([\d.eE+-]+|nan)', line)
             if metrics_match and current_node is not None:
                 rmse_str = metrics_match.group(1).rstrip('.')  # Strip trailing period
                 current_node['rollout_RMSE_mean'] = float(rmse_str) if rmse_str != 'nan' else 1.0
-                # Also extract training_lin_edge_R2 from same line
-                lin_edge_match = re.search(r'training_lin_edge_R2=([\d.eE+-]+|nan)', line)
-                if lin_edge_match:
-                    p_str = lin_edge_match.group(1).rstrip('.')  # Strip trailing period
-                    current_node['training_lin_edge_R2'] = float(p_str) if p_str != 'nan' else 0.0
+                # Also extract training_g_phi_R2 from same line
+                g_phi_match = re.search(r'training_g_phi_R2=([\d.eE+-]+|nan)', line)
+                if g_phi_match:
+                    p_str = g_phi_match.group(1).rstrip('.')  # Strip trailing period
+                    current_node['training_g_phi_R2'] = float(p_str) if p_str != 'nan' else 0.0
                 else:
-                    current_node['training_lin_edge_R2'] = 0.0
+                    current_node['training_g_phi_R2'] = 0.0
                 # Also extract training_accuracy (cluster_accuracy) from same line
                 cluster_match = re.search(r'training_accuracy=([\d.eE+-]+|nan)', line)
                 if cluster_match:
@@ -840,12 +840,12 @@ def compute_ucb_scores(analysis_path, ucb_path, c=1.0, current_log_path=None, cu
             rmse_str = rmse_match.group(1)
             rmse_value = float(rmse_str) if rmse_str != 'nan' else 1.0
 
-            # parse training_lin_edge_R2 from analysis.log
-            lin_edge_value = 0.0
-            lin_edge_match = re.search(r'training_lin_edge_R2[=:]\s*([\d.eE+-]+|nan)', log_content)
-            if lin_edge_match:
-                p_str = lin_edge_match.group(1)
-                lin_edge_value = float(p_str) if p_str != 'nan' else 0.0
+            # parse training_g_phi_R2 from analysis.log
+            g_phi_value = 0.0
+            g_phi_match = re.search(r'training_g_phi_R2[=:]\s*([\d.eE+-]+|nan)', log_content)
+            if g_phi_match:
+                p_str = g_phi_match.group(1)
+                g_phi_value = float(p_str) if p_str != 'nan' else 0.0
 
             # parse cluster_accuracy from analysis.log
             cluster_value = -1.0
@@ -870,7 +870,7 @@ def compute_ucb_scores(analysis_path, ucb_path, c=1.0, current_log_path=None, cu
             if current_iteration in nodes:
                 # Update existing node's metrics
                 nodes[current_iteration]['rollout_RMSE_mean'] = rmse_value
-                nodes[current_iteration]['training_lin_edge_R2'] = lin_edge_value
+                nodes[current_iteration]['training_g_phi_R2'] = g_phi_value
                 nodes[current_iteration]['cluster_accuracy'] = cluster_value
                 nodes[current_iteration]['training_time_min'] = training_time_value
                 nodes[current_iteration]['training_final_loss'] = training_final_loss_value
@@ -883,7 +883,7 @@ def compute_ucb_scores(analysis_path, ucb_path, c=1.0, current_log_path=None, cu
                     'id': current_iteration,
                     'parent': parent,
                     'rollout_RMSE_mean': rmse_value,
-                    'training_lin_edge_R2': lin_edge_value,
+                    'training_g_phi_R2': g_phi_value,
                     'cluster_accuracy': cluster_value,
                     'training_time_min': training_time_value,
                     'training_final_loss': training_final_loss_value,
@@ -961,7 +961,7 @@ def compute_ucb_scores(analysis_path, ucb_path, c=1.0, current_log_path=None, cu
             'mean_reward': reward,
             'ucb': ucb,
             'rollout_RMSE_mean': rmse,
-            'training_lin_edge_R2': node.get('training_lin_edge_R2', 0.0),
+            'training_g_phi_R2': node.get('training_g_phi_R2', 0.0),
             'cluster_accuracy': node.get('cluster_accuracy', -1.0),
             'training_time_min': node.get('training_time_min', -1.0),
             'training_final_loss': node.get('training_final_loss', -1.0),
@@ -991,7 +991,7 @@ def compute_ucb_scores(analysis_path, ucb_path, c=1.0, current_log_path=None, cu
             line = (f"Node {score['id']}: UCB={score['ucb']:.3f}, "
                     f"parent={parent_str}, visits={score['visits']}, "
                     f"RMSE={score['rollout_RMSE_mean']:.4f}, "
-                    f"lin_edge_R2={score['training_lin_edge_R2']:.3f}")
+                    f"g_phi_R2={score['training_g_phi_R2']:.3f}")
             # Add cluster accuracy if available (>= 0)
             if cluster_acc >= 0:
                 line += f", Cluster={cluster_acc:.3f}"
@@ -1060,7 +1060,7 @@ Parent: 14
 Phase: optimization
 Branch: exploration
 Config: lr_W=5.0E-3, lr=3.5E-4, coeff_W_L1=0
-Metrics: rollout_RMSE_mean=0.0123, training_lin_edge_R2=0.9864, cluster_accuracy=0.85, training_final_loss=2.6281e+02
+Metrics: rollout_RMSE_mean=0.0123, training_g_phi_R2=0.9864, cluster_accuracy=0.85, training_final_loss=2.6281e+02
 Observation: lr_W=5E-3 achieves low rollout RMSE
 Rationale: increase lr_W to probe upper bound
 Change: lr_W: 4.0E-3 -> 5.0E-3 (*1.25)

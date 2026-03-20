@@ -29,7 +29,7 @@ class UCBNode:
     parent: Optional[int]
     visits: int
     rmse: float
-    lin_edge_r2: float = 0.0
+    g_phi_r2: float = 0.0
     external_input_r2: float = -1.0  # -1 means not available
     cluster_accuracy: float = -1.0  # -1 means not available
     training_time_min: float = -1.0  # -1 means not available
@@ -43,9 +43,9 @@ def parse_ucb_scores(filepath: str) -> list[UCBNode]:
     with open(filepath, 'r') as f:
         content = f.read()
 
-    # Pattern: Node N: UCB=X.XXX, parent=P|root, visits=V, RMSE=X.XXX, lin_edge_R2=X.XXX, ...
+    # Pattern: Node N: UCB=X.XXX, parent=P|root, visits=V, RMSE=X.XXX, g_phi_R2=X.XXX, ...
     # All fields after RMSE are optional for backward compatibility
-    pattern = r'Node (\d+): UCB=([\d.]+), parent=(\d+|root), visits=(\d+), RMSE=([\d.]+)(?:, lin_edge_R2=([\d.]+))?(?:, External_input_R2=([\d.]+))?(?:, Cluster=([\d.]+))?(?:, Time=([\d.]+))?(?:, Mutation=([^\n\[]+))?'
+    pattern = r'Node (\d+): UCB=([\d.]+), parent=(\d+|root), visits=(\d+), RMSE=([\d.]+)(?:, g_phi_R2=([\d.]+))?(?:, External_input_R2=([\d.]+))?(?:, Cluster=([\d.]+))?(?:, Time=([\d.]+))?(?:, Mutation=([^\n\[]+))?'
 
     for match in re.finditer(pattern, content):
         node_id = int(match.group(1))
@@ -54,7 +54,7 @@ def parse_ucb_scores(filepath: str) -> list[UCBNode]:
         parent = None if parent_str == 'root' else int(parent_str)
         visits = int(match.group(4))
         rmse = float(match.group(5))
-        lin_edge_r2 = float(match.group(6)) if match.group(6) else 0.0
+        g_phi_r2 = float(match.group(6)) if match.group(6) else 0.0
         external_input_r2 = float(match.group(7)) if match.group(7) else -1.0
         cluster_accuracy = float(match.group(8)) if match.group(8) else -1.0
         training_time_min = float(match.group(9)) if match.group(9) else -1.0
@@ -66,7 +66,7 @@ def parse_ucb_scores(filepath: str) -> list[UCBNode]:
             parent=parent,
             visits=visits,
             rmse=rmse,
-            lin_edge_r2=lin_edge_r2,
+            g_phi_r2=g_phi_r2,
             external_input_r2=external_input_r2,
             cluster_accuracy=cluster_accuracy,
             training_time_min=training_time_min,
@@ -237,8 +237,8 @@ def plot_ucb_tree(nodes: list[UCBNode],
                            fontsize=6, xytext=(5, 14), textcoords='offset points',
                            color='#333333', zorder=3, rotation=45)
 
-        # Annotation: UCB/V and RMSE/lin_edge_R2 below the node
-        label_text = f"UCB={node.ucb:.2f} V={node.visits}\nRMSE={node.rmse:.3f} lin_edge_R\u00b2={node.lin_edge_r2:.2f}"
+        # Annotation: UCB/V and RMSE/g_phi_R2 below the node
+        label_text = f"UCB={node.ucb:.2f} V={node.visits}\nRMSE={node.rmse:.3f} g_phi_R\u00b2={node.g_phi_r2:.2f}"
         # Add external input R2 if available (>= 0)
         if node.external_input_r2 >= 0:
             label_text += f"\nR\u00b2_ext={node.external_input_r2:.2f}"
