@@ -367,7 +367,7 @@ def generate_data_locally(state: ExplorationState, batch: BatchInfo):
         data_generate(
             config=config,
             device=state.device,
-            visualize=False,
+            visualize=True,
             run_vizualized=0,
             style="color",
             alpha=1,
@@ -398,7 +398,7 @@ def run_cluster_training(state: ExplorationState, batch: BatchInfo):
             root_dir=state.root_dir,
             erase=True,
             node_name=state.node_name,
-            generate=state.generate_data,
+            generate=False,
         )
         if jid:
             job_ids[slot] = jid

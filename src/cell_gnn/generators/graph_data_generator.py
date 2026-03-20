@@ -379,9 +379,10 @@ def data_generate_cell(
                     os.remove(f)
     os.makedirs(folder, exist_ok=True)
     os.makedirs(f"{graphs_data_path(dataset_name)}/Fig/", exist_ok=True)
-    files = glob.glob(f"{graphs_data_path(dataset_name)}/Fig/*")
-    for f in files:
-        os.remove(f)
+    if erase:
+        files = glob.glob(f"{graphs_data_path(dataset_name)}/Fig/*")
+        for f in files:
+            os.remove(f)
 
     # create GNN
     model, bc_pos, bc_dpos = choose_model(config=config, device=device)
@@ -397,9 +398,9 @@ def data_generate_cell(
         ax.axhline(0, color="k", linewidth=0.5)
         ax.axvline(to_numpy(p[0, 1]), color="gray", linestyle="--", linewidth=0.5, label=f"r0={p[0,1]:.3f}")
         ax.axvline(to_numpy(p[0, 3]), color="gray", linestyle=":", linewidth=0.5, label=f"r_on={p[0,3]:.3f}")
-        ax.set_xlabel("r")
-        ax.set_ylabel("F(r)")
-        ax.set_title(f"Spring force profile (mu_f={p[0, 5]:.4f})")
+        ax.set_xlabel("r", fontsize=24)
+        ax.set_ylabel("F(r)", fontsize=24)
+        ax.set_title(f"spring force profile (mu_f={p[0, 5]:.4f})", fontsize=24)
         ax.legend()
         plt.tight_layout()
         fig.savefig(f"{graphs_data_path(dataset_name)}/spring_force_profile.png", dpi=150)
@@ -872,9 +873,10 @@ def data_generate_cell_field(
                     os.remove(f)
     os.makedirs(folder, exist_ok=True)
     os.makedirs(f"{graphs_data_path(dataset_name)}/Fig/", exist_ok=True)
-    files = glob.glob(f"{graphs_data_path(dataset_name)}/Fig/*")
-    for f in files:
-        os.remove(f)
+    if erase:
+        files = glob.glob(f"{graphs_data_path(dataset_name)}/Fig/*")
+        for f in files:
+            os.remove(f)
     copyfile(os.path.realpath(__file__), os.path.join(folder, "generation_code.py"))
 
     mesh_state, mesh_data = init_mesh(config, device=device)
