@@ -116,15 +116,29 @@ Budget: **< 1 hour on H100**. Factors increasing time:
 - 8000 frames is a large dataset — keep `data_augmentation_loop` modest
 - Smaller `batch_size`
 
+## CRITICAL: GPU Memory Constraint
+
+This simulation has **very high edge counts** (~700K edges/frame, avg degree ~295) because 4800 cells cluster tightly in 3D. This makes memory the binding constraint:
+
+- **hidden_dim > 128 WILL OOM** on H100 (80GB) — do NOT exceed 128
+- **batch_size > 8 WILL OOM** — do NOT exceed 8
+- **hidden_dim=128 + batch_size=8** is near the memory limit — if using hidden_dim=128, prefer batch_size ≤ 4
+- Combining large hidden_dim with many n_layers multiplies memory further
+
+Safe combinations:
+- hidden_dim=64, batch_size=8 — safe
+- hidden_dim=128, batch_size=4 — safe
+- hidden_dim=128, batch_size=8 — borderline, may OOM on dense frames
+
 ## Explorable Training Parameters
 
 | Parameter | YAML path | Default | Description | Typical range |
 |-----------|-----------|---------|-------------|---------------|
 | `learning_rate_start` | training.learning_rate_start | 1E-4 | LR for g_phi MLP | [1E-5, 1E-3] |
 | `learning_rate_embedding_start` | training.learning_rate_embedding_start | 1E-5 | LR for embeddings | [1E-6, 1E-4] |
-| `batch_size` | training.batch_size | 8 | Frames per gradient step | [1, 16] |
+| `batch_size` | training.batch_size | 8 | Frames per gradient step | [1, 8] |
 | `data_augmentation_loop` | training.data_augmentation_loop | 20 | Iterations multiplier | [5, 100] |
-| `hidden_dim` | graph_model.hidden_dim | 128 | g_phi hidden width | [32, 256] |
+| `hidden_dim` | graph_model.hidden_dim | 128 | g_phi hidden width | [32, 128] |
 | `n_layers` | graph_model.n_layers | 5 | g_phi depth | [3, 7] |
 | `embedding_dim` | graph_model.embedding_dim | 2 | Cell embedding dim | [1, 8] |
 | `aggr_type` | graph_model.aggr_type | add | Aggregation: mean, add, max | - |
