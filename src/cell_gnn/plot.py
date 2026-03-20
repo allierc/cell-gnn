@@ -481,7 +481,7 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
 
                         # Scatter inset: true vs predicted for all curves
                         _add_r2_scatter_inset(ax, to_numpy(func_list), type_arr, true_curves,
-                                              ynorm=ynorm_np, cmap=cmap, style=style)
+                                              ynorm=ynorm_np, cmap=cmap, style=style, r2=g_phi_r2)
 
                 if plot_config.xlim is not None:
                     ax.set_xlim(plot_config.xlim)
@@ -544,7 +544,7 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
                                 color=style.foreground)
 
                         _add_r2_scatter_inset(ax, to_numpy(func_list), type_arr, true_curves,
-                                              ynorm=ynorm_np, cmap=cmap, style=style)
+                                              ynorm=ynorm_np, cmap=cmap, style=style, r2=g_phi_r2)
 
                 if plot_config.xlim is not None:
                     ax.set_xlim(plot_config.xlim)
@@ -801,13 +801,13 @@ def _compute_curve_r2(func_list_np, type_arr, true_curves, ynorm=1.0):
     return r2_values
 
 
-def _add_r2_scatter_inset(ax, func_list_np, type_arr, true_curves, ynorm=1.0, cmap=None, style=None):
+def _add_r2_scatter_inset(ax, func_list_np, type_arr, true_curves, ynorm=1.0, cmap=None, style=None, r2=None):
     """Add a small scatter inset (top-right) showing true vs predicted g_phi values."""
     if not true_curves:
         return
     ynorm_val = float(ynorm) if np.isscalar(ynorm) else np.asarray(ynorm)
 
-    # Subsample points for speed: take every 10th r-point
+    # Subsample points for speed
     step = max(1, func_list_np.shape[1] // 100)
     all_true, all_pred, all_colors = [], [], []
     for i in range(func_list_np.shape[0]):
@@ -826,16 +826,17 @@ def _add_r2_scatter_inset(ax, func_list_np, type_arr, true_curves, ynorm=1.0, cm
     all_true = np.concatenate(all_true)
     all_pred = np.concatenate(all_pred)
 
-    inset = ax.inset_axes([0.65, 0.65, 0.32, 0.32])
-    inset.scatter(all_true, all_pred, c=all_colors, s=1, alpha=0.1, rasterized=True)
+    inset = ax.inset_axes([0.72, 0.72, 0.24, 0.24])
+    inset.scatter(all_true, all_pred, c=all_colors, s=0.5, alpha=0.1, rasterized=True)
     lims = [min(all_true.min(), all_pred.min()), max(all_true.max(), all_pred.max())]
     inset.plot(lims, lims, 'grey', linewidth=0.5, alpha=0.7)
     inset.set_xlim(lims)
     inset.set_ylim(lims)
     inset.set_aspect('equal')
-    inset.tick_params(labelsize=6)
-    inset.set_xlabel('true', fontsize=6)
-    inset.set_ylabel('pred', fontsize=6)
+    inset.set_xticks([])
+    inset.set_yticks([])
+    if r2 is not None:
+        inset.set_title(f'R²={r2:.3f}', fontsize=6, pad=2)
     if style is not None:
         inset.set_facecolor(style.background)
 

@@ -510,6 +510,8 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
         log_file.write(f"training_accuracy={accuracy:.4f}\n")
         if last_g_phi_r2 is not None:
             log_file.write(f"training_g_phi_R2={last_g_phi_r2:.6f}\n")
+        if last_g_phi_r2_std is not None:
+            log_file.write(f"training_g_phi_R2_std={last_g_phi_r2_std:.6f}\n")
         log_file.write(f"training_time_min={training_time:.1f}\n")
 
 

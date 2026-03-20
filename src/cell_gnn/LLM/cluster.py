@@ -83,7 +83,7 @@ def submit_cluster_job(slot, config_path, analysis_log_path, config_file_field,
     with open(cluster_script_path, 'w') as f:
         f.write("#!/bin/bash\n")
         f.write(f"cd {CLUSTER_ROOT_DIR}\n")
-        f.write(f"conda run -n cell-gnn {cluster_train_cmd}\n")
+        f.write(f"conda run -n particle-graph {cluster_train_cmd}\n")
     os.chmod(cluster_script_path, 0o755)
 
     cluster_script = local_to_cluster(cluster_script_path, root_dir)

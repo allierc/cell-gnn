@@ -204,17 +204,18 @@ def init_shared_files(state: ExplorationState, is_resume: bool):
         with open(state.memory_path, 'w') as f:
             f.write(f"# Working Memory: {state.base_config_name} (parallel)\n\n")
             f.write("## Knowledge Base (accumulated across all blocks)\n\n")
-            f.write("### Parameter Comparison Table\n")
-            f.write("| Block | lr | lr_emb | batch | hidden | n_layers | emb_dim | max_r | Best RMSE | g_phi_R2 | Key finding |\n")
-            f.write("| ----- | -- | ------ | ----- | ------ | -------- | ------- | ----- | --------- | ------ | ----------- |\n\n")
+            f.write("### Regime Comparison Table\n\n")
+            f.write("| Iter | Config summary | g_phi_R2 (mean±std) | g_phi_R2_std (mean) | CV% | min | max | RMSE | time_min | Stability | Hypothesis tested |\n")
+            f.write("| ---- | -------------- | ------------------- | ------------------- | --- | --- | --- | ---- | -------- | --------- | ----------------- |\n\n")
             f.write("### Established Principles\n\n")
+            f.write("### Falsified Hypotheses\n\n")
             f.write("### Open Questions\n\n")
             f.write("---\n\n")
             f.write("## Previous Block Summary\n\n")
             f.write("---\n\n")
             f.write("## Current Block (Block 1)\n\n")
             f.write("### Block Info\n\n")
-            f.write("### Hypothesis\n\n")
+            f.write("### Current Hypothesis\n\n")
             f.write("### Iterations This Block\n\n")
             f.write("### Emerging Observations\n\n")
         print(f"\033[93mcleared {state.memory_path}\033[0m")
@@ -571,19 +572,23 @@ def update_ucb_scores(state: ExplorationState, batch: BatchInfo):
         with open(slot_log_path, 'r') as f:
             log_content = f.read()
         rmse_m = re.search(r'rollout_RMSE_mean[=:]\s*([\d.eE+-]+|nan)', log_content)
-        psi_m = re.search(r'training_g_phi_R2[=:]\s*([\d.eE+-]+|nan)', log_content)
+        r2_m = re.search(r'training_g_phi_R2[=:]\s*([\d.eE+-]+|nan)', log_content)
+        r2_std_m = re.search(r'training_g_phi_R2_std[=:]\s*([\d.eE+-]+|nan)', log_content)
         acc_m = re.search(r'training_accuracy[=:]\s*([\d.eE+-]+|nan)', log_content)
         time_m = re.search(r'training_time_min[=:]\s*([\d.]+)', log_content)
-        if rmse_m:
-            rmse_val = rmse_m.group(1)
-            psi_val = psi_m.group(1) if psi_m else '0.0'
+        if r2_m or rmse_m:
+            rmse_val = rmse_m.group(1) if rmse_m else 'nan'
+            r2_val = r2_m.group(1) if r2_m else '0.0'
+            r2_std_val = r2_std_m.group(1) if r2_std_m else 'nan'
             acc_val = acc_m.group(1) if acc_m else '0.0'
+            time_val = time_m.group(1) if time_m else '0.0'
             if f'## Iter {iteration}:' not in existing_content:
                 stub_entries += (
                     f"\n## Iter {iteration}: pending\n"
                     f"Node: id={iteration}, parent=root\n"
-                    f"Metrics: rollout_RMSE_mean={rmse_val}, training_g_phi_R2={psi_val}, "
-                    f"training_accuracy={acc_val}\n"
+                    f"Metrics: rollout_RMSE_mean={rmse_val}, training_g_phi_R2={r2_val}, "
+                    f"training_g_phi_R2_std={r2_std_val}, training_accuracy={acc_val}, "
+                    f"training_time_min={time_val}\n"
                 )
 
     tmp_analysis = state.analysis_path + '.tmp_ucb'
