@@ -643,8 +643,8 @@ def data_generate_cell(
 
                     pos_np = to_numpy(x.pos)
 
-                    # --- Left panel: pyvista 3D view (fallback to matplotlib) ---
-                    _pv_ok = False
+                    # --- Left panel: 3D view (pyvista → matplotlib fallback) ---
+                    _pv_img = None
                     try:
                         import pyvista as pv
                         pv.OFF_SCREEN = True
@@ -666,17 +666,19 @@ def data_generate_cell(
                         plotter.view_vector((0.7, 1.3, 0.5))
                         plotter.enable_eye_dome_lighting()
                         plotter.camera.zoom(1.3)
-                        pv_path = f"{graphs_data_path(dataset_name)}/Fig/Fig3D_{run}_{it}.png"
-                        plotter.screenshot(pv_path)
+                        _pv_img = plotter.screenshot(return_img=True)
                         plotter.close()
-                        _pv_ok = True
                     except Exception:
                         pass
 
-                    if not _pv_ok:
-                        from mpl_toolkits.mplot3d.art3d import Line3DCollection
-                        fig3d = plt.figure(figsize=(6, 6))
-                        ax1 = fig3d.add_subplot(111, projection="3d")
+                    fig = plt.figure(figsize=(12, 6))
+
+                    if _pv_img is not None:
+                        ax1 = fig.add_subplot(121)
+                        ax1.imshow(_pv_img)
+                        ax1.axis("off")
+                    else:
+                        ax1 = fig.add_subplot(121, projection="3d")
                         for n in range(n_cell_types):
                             ax1.scatter(
                                 to_numpy(x.pos[index_cells[n], 0]),
@@ -690,10 +692,8 @@ def data_generate_cell(
                         ax1.set_xlabel("X", fontsize=8, labelpad=-12)
                         ax1.set_ylabel("Y", fontsize=8, labelpad=-12)
                         ax1.set_zlabel("Z", fontsize=8, labelpad=-12)
-                        plt.tight_layout()
-                        active_style.savefig(fig3d, f"{graphs_data_path(dataset_name)}/Fig/Fig3D_{run}_{it}.png")
 
-                    # --- Right panel: matplotlib 2D cross-section ---
+                    # --- Right panel: 2D cross-section ---
                     ei_fwd = None
                     if "edge" in style:
                         ei_np = to_numpy(edge_index)
@@ -703,8 +703,7 @@ def data_generate_cell(
                         no_wrap = np.sqrt((dx ** 2).sum(axis=1)) < max_radius * 1.1
                         ei_fwd = ei_fwd[:, no_wrap]
 
-                    fig = plt.figure(figsize=(6, 6))
-                    ax2 = fig.add_subplot(111)
+                    ax2 = fig.add_subplot(122)
                     z_center = 0.5
                     z_thickness = 0.1
                     z_vals = pos_np[:, 2]
