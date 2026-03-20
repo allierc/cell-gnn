@@ -1,42 +1,20 @@
 {
-  "date": "2026-02-23",
-  "commit": "80e7a5b",
-  "configs": {
-    "arbitrary": {
-      "metrics": {
-        "rollout_RMSE_mean": 0.0055021181612219154,
-        "rollout_RMSE_final": 0.012140762060880661,
-        "training_accuracy": 0.977
-      },
-      "thresholds": {
-        "rollout_RMSE_mean": 0.01,
-        "rollout_RMSE_final": 0.05,
-        "training_accuracy": 0.05
-      }
+    "date": "2026-02-27",
+    "description": "Baseline reference metrics for regression testing",
+    "metrics": {
+        "corrected_W_R2": 0.9714,
+        "tau_R2": 0.991,
+        "V_rest_R2": 0.706,
+        "GMM_accuracy": 0.863,
+        "rollout_RMSE": 0.0120,
+        "rollout_pearson": 0.997
     },
-    "boids": {
-      "metrics": {
-        "rollout_RMSE_mean": 0.08483862561422223,
-        "rollout_RMSE_final": 0.22223006188869476,
-        "training_accuracy": 0.995
-      },
-      "thresholds": {
-        "rollout_RMSE_mean": 0.01,
-        "rollout_RMSE_final": 0.05,
-        "training_accuracy": 0.05
-      }
-    },
-    "gravity": {
-      "metrics": {
-        "rollout_RMSE_mean": 1.2970558463530297,
-        "rollout_RMSE_final": 3.060546398162842,
-        "training_accuracy": 0.629
-      },
-      "thresholds": {
-        "rollout_RMSE_mean": 0.01,
-        "rollout_RMSE_final": 0.05,
-        "training_accuracy": 0.05
-      }
+    "thresholds": {
+        "corrected_W_R2": 0.02,
+        "tau_R2": 0.02,
+        "V_rest_R2": 0.05,
+        "GMM_accuracy": 0.05,
+        "rollout_RMSE": 0.005,
+        "rollout_pearson": 0.01
     }
-  }
 }

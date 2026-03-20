@@ -664,7 +664,7 @@ def data_generate_cell(
                             to_numpy(x.pos[index_cells[n], 0]),
                             to_numpy(x.pos[index_cells[n], 1]),
                             to_numpy(x.pos[index_cells[n], 2]),
-                            s=10,
+                            s=4,
                             color=cmap.color(n),
                             alpha=0.5,
                             edgecolors="none",
@@ -672,9 +672,10 @@ def data_generate_cell(
                     ax1.set_xlim([0, 1])
                     ax1.set_ylim([0, 1])
                     ax1.set_zlim([0, 1])
-                    ax1.set_xlabel("X")
-                    ax1.set_ylabel("Y")
-                    ax1.set_zlabel("Z")
+                    ax1.set_xticks([])
+                    ax1.set_yticks([])
+                    ax1.set_zticks([])
+                    ax1.axis("off")
 
                     # Right panel: 2D cross-section (z slice at middle)
                     ax2 = fig.add_subplot(122)
@@ -696,15 +697,16 @@ def data_generate_cell(
                         ax2.scatter(
                             to_numpy(x.pos[index_cells[n], 0])[mask],
                             to_numpy(x.pos[index_cells[n], 1])[mask],
-                            s=15,
+                            s=4,
                             color=cmap.color(n),
                             alpha=0.7,
                             edgecolors="none",
                         )
                     ax2.set_xlim([0, 1])
                     ax2.set_ylim([0, 1])
-                    ax2.set_xlabel("X")
-                    ax2.set_ylabel("Y")
+                    ax2.set_xticks([])
+                    ax2.set_yticks([])
+                    ax2.axis("off")
                     ax2.set_title(
                         f"Z cross-section ({z_center-z_thickness:.1f} < z < {z_center+z_thickness:.1f})"
                     )
