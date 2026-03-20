@@ -397,7 +397,7 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
                     last_g_phi_r2_std = g_phi_r2_std
                     with open(metrics_log_path, 'a') as f:
                         f.write(f'{epoch},{N},{g_phi_r2:.6f},{loss.item() / n_cells:.6f}\n')
-                torch.save({'model_state_dict': model.state_dict(), 'optimizer_state_dict': optimizer.state_dict()},
+                torch.save({'model_state_dict': model.state_dict(), 'optimizer_state_dict': optimizer.state_dict(), 'config_dict': config.model_dump(mode='json')},
                            os.path.join(log_dir, 'models', f'best_model_with_{n_runs - 1}_graphs_{epoch}_{N}.pt'))
                 if has_field:
                     torch.save({'model_state_dict': model_f.state_dict(),
@@ -409,7 +409,8 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
                                        memory_percentage_threshold=0.6)
 
         torch.save({'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict()},
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'config_dict': config.model_dump(mode='json')},
                    os.path.join(log_dir, 'models', f'best_model_with_{n_runs - 1}_graphs_{epoch}.pt'))
 
         r2_str = ''
@@ -660,7 +661,20 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
         param = parameter.numel()
         table.add_row([name, param])
         total_params += param
-    state_dict = torch.load(net, map_location=device, weights_only=True)
+    state_dict = torch.load(net, map_location=device, weights_only=False)
+    # If checkpoint contains config, rebuild model from it to match architecture
+    if 'config_dict' in state_dict:
+        ckpt_config = CellGNNConfig(**state_dict['config_dict'])
+        ckpt_config.dataset = config.dataset
+        ckpt_config.config_file = config.config_file
+        if ckpt_config.graph_model.hidden_dim != config.graph_model.hidden_dim or \
+           ckpt_config.graph_model.n_layers != config.graph_model.n_layers:
+            print(f'\033[93mconfig mismatch — rebuilding model from checkpoint config\033[0m')
+            config = ckpt_config
+            model, bc_pos, bc_dpos = choose_training_model(config, device)
+            model.ynorm = ynorm
+            model.vnorm = vnorm
+            model.cell_of_interest = cell_of_interest
     model.load_state_dict(state_dict['model_state_dict'])
     model.eval()
 
@@ -1355,7 +1369,7 @@ def data_train_cell_field(config, erase, best_model, device, log_file=None):
                                 'optimizer_state_dict': optimizer_f.state_dict()},
                                os.path.join(log_dir, 'models', f'best_model_f_with_{n_runs - 1}_graphs_{epoch}_{N}.pt'))
             if ((epoch == 0) & (N % (Niter // 200) == 0)):
-                torch.save({'model_state_dict': model.state_dict(), 'optimizer_state_dict': optimizer.state_dict()},
+                torch.save({'model_state_dict': model.state_dict(), 'optimizer_state_dict': optimizer.state_dict(), 'config_dict': config.model_dump(mode='json')},
                            os.path.join(log_dir, 'models', f'best_model_with_{n_runs - 1}_graphs_{epoch}_{N}.pt'))
                 if has_siren:
                     torch.save({'model_state_dict': model_f.state_dict(),
@@ -1365,7 +1379,8 @@ def data_train_cell_field(config, erase, best_model, device, log_file=None):
         print("Epoch {}. Loss: {:.6f}  Regul: {:.6f}".format(epoch, total_loss / n_cells, total_loss_regul / n_cells))
         logger.info("Epoch {}. Loss: {:.6f}  Regul: {:.6f}".format(epoch, total_loss / n_cells, total_loss_regul / n_cells))
         torch.save({'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict()},
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'config_dict': config.model_dump(mode='json')},
                    os.path.join(log_dir, 'models', f'best_model_with_{n_runs - 1}_graphs_{epoch}.pt'))
         if has_siren:
             torch.save({'model_state_dict': model_f.state_dict(),
