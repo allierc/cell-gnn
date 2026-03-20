@@ -641,7 +641,7 @@ def data_generate_cell(
                     from mpl_toolkits.mplot3d.art3d import Line3DCollection
                     from matplotlib.collections import LineCollection as LC
 
-                    fig, _ = active_style.figure(width=12, height=6)
+                    fig = plt.figure(figsize=(12, 6))
                     pos_np = to_numpy(x.pos)
 
                     # prepare edge segments for drawing
