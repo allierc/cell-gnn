@@ -24,18 +24,20 @@ This exploration follows a strict **hypothesize → test → validate/falsify** 
 
 **Evidence hierarchy:**
 
-| Level | Criterion | Action |
-|-------|-----------|--------|
-| **Established** | Consistent across 3+ iterations AND 4/4 seeds | Add to Principles |
-| **Tentative** | Observed 1-2 times or inconsistent across seeds | Add to Open Questions |
-| **Contradicted** | Conflicting evidence across iterations/seeds | Note in Falsified Hypotheses |
+| Level            | Criterion                                       | Action                       |
+| ---------------- | ----------------------------------------------- | ---------------------------- |
+| **Established**  | Consistent across 3+ iterations AND 4/4 seeds   | Add to Principles            |
+| **Tentative**    | Observed 1-2 times or inconsistent across seeds | Add to Open Questions        |
+| **Contradicted** | Conflicting evidence across iterations/seeds    | Note in Falsified Hypotheses |
 
 ## Physics
 
 4800 cells of 3 types in 2D periodic box. Each cell type has a distinct radial interaction:
+
 ```
 F(r) = r * (p0 * exp(-r^(2*p1) / (2*σ²)) - p2 * exp(-r^(2*p3) / (2*σ²)))
 ```
+
 The `cell_params` are FIXED — do not change them.
 
 ## Cell-GNN Model
@@ -63,10 +65,10 @@ Log seed values in iteration entries.
 
 Each slot re-generates data with a different seed. You MAY vary these simulation parameters:
 
-| Parameter | YAML path | Default | Explorable range |
-|-----------|-----------|---------|------------------|
-| `delta_t` | simulation.delta_t | 0.025 | [0.01, 0.05] |
-| `n_frames` | simulation.n_frames | 1000 | [1000, 4000] |
+| Parameter  | YAML path           | Default | Explorable range |
+| ---------- | ------------------- | ------- | ---------------- |
+| `delta_t`  | simulation.delta_t  | 0.025   | [0.01, 0.05]     |
+| `n_frames` | simulation.n_frames | 1000    | [1000, 4000]     |
 
 **DO NOT change**: `n_cells`, `n_cell_types`, `cell_params`, `func_params`, `sigma`, `max_radius`, `boundary`, `dimension`.
 
@@ -74,24 +76,26 @@ Note: more frames = more training data = longer training. Adjust `data_augmentat
 
 ## Metrics from analysis.log
 
-| Metric | Better | Description |
-|--------|--------|-------------|
-| `training_g_phi_R2` | Higher | R² of learned g_phi vs true (PRIMARY) |
-| `training_g_phi_R2_std` | Lower | Std of per-cell R² — consistency (SECONDARY) |
-| `rollout_RMSE_mean` | Lower | Mean RMSE across rollout steps (TERTIARY) |
-| `training_accuracy` | Higher | Clustering accuracy of embeddings |
-| `training_final_loss` | Lower | Final epoch training loss |
-| `training_time_min` | < 20 | Training duration in minutes |
+| Metric                  | Better | Description                                  |
+| ----------------------- | ------ | -------------------------------------------- |
+| `training_g_phi_R2`     | Higher | R² of learned g_phi vs true (PRIMARY)        |
+| `training_g_phi_R2_std` | Lower  | Std of per-cell R² — consistency (SECONDARY) |
+| `rollout_RMSE_mean`     | Lower  | Mean RMSE across rollout steps (TERTIARY)    |
+| `training_accuracy`     | Higher | Clustering accuracy of embeddings            |
+| `training_final_loss`   | Lower  | Final epoch training loss                    |
+| `training_time_min`     | < 20   | Training duration in minutes                 |
 
 ## Classification
 
 Per-slot:
+
 - **Excellent**: g_phi_R2 > 0.95 AND g_phi_R2_std < 0.1
 - **Good**: g_phi_R2 > 0.90 AND g_phi_R2_std < 0.2
 - **Partial**: g_phi_R2 > 0.80
 - **Failed**: g_phi_R2 < 0.80 OR training_time_min > 20
 
 Batch-level robustness (across 4 seeds):
+
 - **Stable-Robust**: all 4 slots g_phi_R2 > 0.90 AND CV < 5% — **TARGET**
 - **Robust**: all 4 slots g_phi_R2 > 0.90, CV 5-10%
 - **Partially robust**: 2-3 slots g_phi_R2 > 0.90
@@ -100,36 +104,34 @@ Batch-level robustness (across 4 seeds):
 
 ## Explorable Training Parameters
 
-| Parameter | YAML path | Default | Description | Typical range |
-|-----------|-----------|---------|-------------|---------------|
-| `learning_rate_start` | training.learning_rate_start | 1E-4 | LR for g_phi MLP | [1E-5, 1E-3] |
-| `learning_rate_embedding_start` | training.learning_rate_embedding_start | 1E-5 | LR for embeddings | [1E-6, 1E-4] |
-| `batch_size` | training.batch_size | 8 | Frames per gradient step | [1, 16] |
-| `data_augmentation_loop` | training.data_augmentation_loop | 20 | Iterations multiplier | [5, 100] |
-| `hidden_dim` | graph_model.hidden_dim | 128 | g_phi hidden width | [32, 256] |
-| `n_layers` | graph_model.n_layers | 5 | g_phi depth | [3, 7] |
-| `embedding_dim` | graph_model.embedding_dim | 2 | Cell embedding dim | [1, 8] |
-| `aggr_type` | graph_model.aggr_type | mean | Aggregation: mean, add, max | - |
-| `coeff_edge_diff` | training.coeff_edge_diff | 0 | Same-type edge similarity | [0, 100] |
-| `coeff_edge_norm` | training.coeff_edge_norm | 0 | Monotonicity on g_phi | [0, 10] |
-| `rotation_augmentation` | training.rotation_augmentation | True | SO(2) rotation augmentation | - |
-| `update_type` | graph_model.update_type | none | Node update: 'none' or 'mlp' | - |
-| `delta_t` | simulation.delta_t | 0.025 | Integration time step | [0.01, 0.05] |
-| `n_frames` | simulation.n_frames | 1000 | Frames in generated data | [1000, 4000] |
+| Parameter                       | YAML path                              | Default | Description               | Typical range |
+| ------------------------------- | -------------------------------------- | ------- | ------------------------- | ------------- |
+| `learning_rate_start`           | training.learning_rate_start           | 1E-4    | LR for g_phi MLP          | [1E-5, 1E-3]  |
+| `learning_rate_embedding_start` | training.learning_rate_embedding_start | 1E-5    | LR for embeddings         | [1E-6, 1E-4]  |
+| `batch_size`                    | training.batch_size                    | 8       | Frames per gradient step  | [1, 16]       |
+| `data_augmentation_loop`        | training.data_augmentation_loop        | 20      | Iterations multiplier     | [5, 100]      |
+| `hidden_dim`                    | graph_model.hidden_dim                 | 128     | g_phi hidden width        | [32, 256]     |
+| `n_layers`                      | graph_model.n_layers                   | 5       | g_phi depth               | [3, 7]        |
+| `embedding_dim`                 | graph_model.embedding_dim              | 2       | Cell embedding dim        | [1, 8]        |
+| `coeff_edge_diff`               | training.coeff_edge_diff               | 0       | Same-type edge similarity | [0, 100]      |
+| `coeff_edge_norm`               | training.coeff_edge_norm               | 0       | Monotonicity on g_phi     | [0, 10]       |
+| `delta_t`                       | simulation.delta_t                     | 0.025   | Integration time step     | [0.01, 0.05]  |
+| `n_frames`                      | simulation.n_frames                    | 1000    | Frames in generated data  | [1000, 4000]  |
 
 **Note on `input_size`**: Auto-computed. Do NOT set manually.
 
 ## Recurrent Training
 
-| Parameter | YAML path | Default | Description |
-|-----------|-----------|---------|-------------|
-| `recursive_training` | training.recursive_training | False | Multi-step unrolling |
-| `recursive_training_start_epoch` | training.recursive_training_start_epoch | 0 | Epoch to start |
-| `recursive_loop` | training.recursive_loop | 0 | Unroll steps (2-8) |
+| Parameter                        | YAML path                               | Default | Description          |
+| -------------------------------- | --------------------------------------- | ------- | -------------------- |
+| `recursive_training`             | training.recursive_training             | False   | Multi-step unrolling |
+| `recursive_training_start_epoch` | training.recursive_training_start_epoch | 0       | Epoch to start       |
+| `recursive_loop`                 | training.recursive_loop                 | 0       | Unroll steps (2-8)   |
 
 ## Training Time Constraint
 
 Budget: **20 min on A100**. Factors increasing time:
+
 - Larger `hidden_dim` / `n_layers`
 - Larger `data_augmentation_loop`
 - More `n_frames`
@@ -144,6 +146,7 @@ Budget: **20 min on A100**. Factors increasing time:
 All 4 slots run the **SAME config** — different seeds test robustness automatically.
 
 When exploring different configs rather than testing robustness of one config:
+
 - **Slot 0**: Exploit — best UCB parent
 - **Slot 1**: Exploit — small mutation of best
 - **Slot 2**: Explore — different parameter region
@@ -190,19 +193,20 @@ Next: parent=P
 
 ## Block Partition
 
-| Block | Iterations | Focus | Key Questions |
-|-------|-----------|-------|---------------|
-| 1 | 1-16 | Baseline sweep | Does default work? MLP size effect? LR effect? delta_t effect? |
-| 2 | 17-32 | Data regime | delta_t [0.01, 0.05], n_frames [1000, 4000] — which gives best g_phi? |
-| 3 | 33-48 | Architecture | hidden_dim, n_layers, embedding_dim, aggregation type |
-| 4 | 49-64 | Training scheme | LR, batch_size, data_augmentation, regularization |
-| 5 | 65-80 | Regularization | coeff_edge_diff, coeff_edge_norm — does it reduce R² std? |
-| 6 | 81-96 | Recurrent training | Does multi-step unrolling improve rollout RMSE without hurting g_phi? |
-| 7+ | 97+ | Combined best | Best from blocks 1-6, fine-tune, validation across seeds |
+| Block | Iterations | Focus              | Key Questions                                                         |
+| ----- | ---------- | ------------------ | --------------------------------------------------------------------- |
+| 1     | 1-16       | Baseline sweep     | Does default work? MLP size effect? LR effect? delta_t effect?        |
+| 2     | 17-32      | Data regime        | delta_t [0.01, 0.05], n_frames [1000, 4000] — which gives best g_phi? |
+| 3     | 33-48      | Architecture       | hidden_dim, n_layers, embedding_dim, aggregation type                 |
+| 4     | 49-64      | Training scheme    | LR, batch_size, data_augmentation, regularization                     |
+| 5     | 65-80      | Regularization     | coeff_edge_diff, coeff_edge_norm — does it reduce R² std?             |
+| 6     | 81-96      | Recurrent training | Does multi-step unrolling improve rollout RMSE without hurting g_phi? |
+| 7+    | 97+        | Combined best      | Best from blocks 1-6, fine-tune, validation across seeds              |
 
 ## Block Boundaries
 
 At end of each block:
+
 1. Summarize findings in memory.md "Previous Block Summary"
 2. Update "Established Principles" (require 3+ iterations AND cross-seed consistency)
 3. Move falsified hypotheses to "Falsified Hypotheses"
@@ -213,6 +217,7 @@ At end of each block:
 ## Start Call
 
 When prompt says `PARALLEL START`:
+
 - Read base config
 - Set all 4 configs identically to baseline
 - Write initial hypothesis: "The default config achieves g_phi_R2 > 0.90 robustly across seeds"
@@ -251,7 +256,9 @@ When prompt says `PARALLEL START`:
 ## Current Block (Block N)
 
 ### Block Info
+
 ### Current Hypothesis
+
 **Hypothesis**: [specific, testable]
 **Rationale**: [why]
 **Test**: [what change]
@@ -259,5 +266,6 @@ When prompt says `PARALLEL START`:
 **Status**: untested / supported / falsified
 
 ### Iterations This Block
+
 ### Emerging Observations
 ```

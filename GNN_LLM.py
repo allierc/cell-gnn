@@ -63,9 +63,7 @@ if __name__ == "__main__":
     for batch_start in range(state.start_iteration, state.n_iterations + 1, state.n_parallel):
         batch = make_batch_info(state, batch_start)
 
-        print(f"\n\n\033[94m{'='*60}\033[0m")
         print(f"\033[94mBATCH: iterations {batch.batch_first}-{batch.batch_last} / {state.n_iterations}  (block {batch.block_number})\033[0m")
-        print(f"\033[94m{'='*60}\033[0m")
 
         # Load configs + force seeds
         load_configs_and_seeds(state, batch)
