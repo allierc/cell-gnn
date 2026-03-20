@@ -111,7 +111,7 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
     import yaml as _yaml
     config_snapshot_path = os.path.join(log_dir, 'models', 'config.yaml')
     with open(config_snapshot_path, 'w') as _f:
-        _yaml.dump(config.model_dump(), _f, default_flow_style=False, sort_keys=False)
+        _yaml.dump(config.model_dump(mode='json'), _f, default_flow_style=False, sort_keys=False)
 
     time.sleep(0.5)
     print('load data ...')
