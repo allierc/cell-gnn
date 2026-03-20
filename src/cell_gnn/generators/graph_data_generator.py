@@ -452,6 +452,7 @@ def data_generate_cell(
 
     # Test pyvista availability once (subprocess to avoid hard X11 crash)
     _use_pyvista = False
+    _pv_plotter = None
     if visualize and dimension == 3:
         import subprocess as _sp
         _test = _sp.run(
@@ -463,6 +464,14 @@ def data_generate_cell(
         )
         _use_pyvista = _test.returncode == 0 and "ok" in _test.stdout
         print(f"\033[92m3D plot: using {'pyvista' if _use_pyvista else 'matplotlib'}\033[0m")
+        if _use_pyvista:
+            import pyvista as pv
+            pv.OFF_SCREEN = True
+            _pv_plotter = pv.Plotter(off_screen=True, window_size=(900, 900))
+            _pv_plotter.set_background("white")
+            _pv_plotter.view_vector((0.7, 1.3, 0.5))
+            _pv_plotter.enable_eye_dome_lighting()
+            _pv_plotter.camera.zoom(1.1)
 
     time.sleep(0.5)
     for it in trange(sim.start_frame, n_frames + 1, ncols=100):
@@ -660,25 +669,17 @@ def data_generate_cell(
 
                     # --- Left panel: 3D view (pyvista → matplotlib fallback) ---
                     _pv_img = None
-                    if _use_pyvista:
-                        import pyvista as pv
-                        pv.OFF_SCREEN = True
-                        plotter = pv.Plotter(off_screen=True, window_size=(900, 900))
-                        plotter.set_background("white")
+                    if _use_pyvista and _pv_plotter is not None:
+                        _pv_plotter.clear()
                         for n in range(n_cell_types):
                             pts = pos_np[np.asarray(index_cells[n])]
                             if len(pts) > 0:
                                 cloud = pv.PolyData(pts)
                                 color = cmap.color(n)
-                                plotter.add_points(cloud, color=color[:3], point_size=3, opacity=0.6)
+                                _pv_plotter.add_points(cloud, color=color[:3], point_size=5, opacity=0.6)
                         cube = pv.Cube(center=(0.5, 0.5, 0.5), x_length=1.0, y_length=1.0, z_length=1.0)
-                        frame = cube.extract_all_edges()
-                        plotter.add_mesh(frame, color='grey', line_width=1.0, opacity=0.5)
-                        plotter.view_vector((0.7, 1.3, 0.5))
-                        plotter.enable_eye_dome_lighting()
-                        plotter.camera.zoom(1.1)
-                        _pv_img = plotter.screenshot(return_img=True)
-                        plotter.close()
+                        _pv_plotter.add_mesh(cube.extract_all_edges(), color='grey', line_width=1.0, opacity=0.5)
+                        _pv_img = _pv_plotter.screenshot(return_img=True)
 
                     fig = plt.figure(figsize=(12, 6))
 
@@ -693,7 +694,7 @@ def data_generate_cell(
                                 to_numpy(x.pos[index_cells[n], 0]),
                                 to_numpy(x.pos[index_cells[n], 1]),
                                 to_numpy(x.pos[index_cells[n], 2]),
-                                s=4, color=cmap.color(n), alpha=0.5, edgecolors="none",
+                                s=6, color=cmap.color(n), alpha=0.5, edgecolors="none",
                             )
                         ax1.set_xlim([0, 1]); ax1.set_ylim([0, 1]); ax1.set_zlim([0, 1])
                         ax1.set_box_aspect([1, 1, 1])
@@ -809,6 +810,9 @@ def data_generate_cell(
 
                     num = f"{it:06}"
                     active_style.savefig(fig, f"{graphs_data_path(dataset_name)}/Fig/Fig_{run}_{num}.png")
+
+    if _pv_plotter is not None:
+        _pv_plotter.close()
 
     if save:
         # finalize zarr writers
