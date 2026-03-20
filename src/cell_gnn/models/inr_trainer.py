@@ -249,8 +249,9 @@ def data_train_INR(config, device, field_name=None, run=0, erase=False):
     inr_cfg = config.inr if config.inr else INRConfig()
     dimension = sim.dimension
     dataset_name = config.dataset
-    data_folder = f'graphs_data/{dataset_name}'
-    log_dir = f'log/{config.config_file}'
+    from cell_gnn.utils import graphs_data_path, log_path
+    data_folder = graphs_data_path(dataset_name)
+    log_dir = log_path(config.config_file)
 
     if field_name is None:
         field_name = inr_cfg.inr_field_name

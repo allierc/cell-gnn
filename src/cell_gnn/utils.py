@@ -1,4 +1,5 @@
 import glob
+import json
 import logging
 import os
 import shutil
@@ -14,6 +15,54 @@ from dataclasses import dataclass
 import warnings
 
 warnings.filterwarnings('ignore')
+
+
+# ---------------------------------------------------------------------------
+# Configurable data root (graphs_data/, log/, config/ location)
+# ---------------------------------------------------------------------------
+
+_DATA_ROOT_CACHE = None
+
+
+def get_data_root() -> str:
+    """Return the data root directory from data_paths.json, or '.' if not found.
+
+    Searches for data_paths.json in three locations (first match wins):
+      1. Current working directory
+      2. One level up from this file (src/)
+      3. Two levels up from this file (repo root when running from source)
+    """
+    global _DATA_ROOT_CACHE
+    if _DATA_ROOT_CACHE is not None:
+        return _DATA_ROOT_CACHE
+    _this_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(os.getcwd(), 'data_paths.json'),
+        os.path.normpath(os.path.join(_this_dir, '..', 'data_paths.json')),
+        os.path.normpath(os.path.join(_this_dir, '..', '..', 'data_paths.json')),
+    ]
+    for json_path in candidates:
+        if os.path.isfile(json_path):
+            with open(json_path) as f:
+                _DATA_ROOT_CACHE = json.load(f)['data_root']
+            return _DATA_ROOT_CACHE
+    _DATA_ROOT_CACHE = '.'
+    return _DATA_ROOT_CACHE
+
+
+def graphs_data_path(*parts: str) -> str:
+    """Build path under graphs_data/: graphs_data_path('misc', 'x.npy') -> '{data_root}/graphs_data/misc/x.npy'"""
+    return os.path.join(get_data_root(), 'graphs_data', *parts)
+
+
+def log_path(*parts: str) -> str:
+    """Build path under log/: log_path('misc', 'models') -> '{data_root}/log/misc/models'"""
+    return os.path.join(get_data_root(), 'log', *parts)
+
+
+def config_path(*parts: str) -> str:
+    """Build path under config/: config_path('misc', 'dicty.yaml') -> '{data_root}/config/misc/dicty.yaml'"""
+    return os.path.join(get_data_root(), 'config', *parts)
 
 
 def sort_key(filename):
@@ -275,14 +324,14 @@ def add_pre_folder(config_file_):
         config_file = os.path.join('gravity', config_file_)
         pre_folder = 'gravity/'
     elif 'dicty' in config_file_:
-        config_file = os.path.join('misc', config_file_)
-        pre_folder = 'misc/'
+        config_file = os.path.join('dicty', config_file_)
+        pre_folder = 'dicty/'
     elif 'embryo' in config_file_:
-        config_file = os.path.join('misc', config_file_)
-        pre_folder = 'misc/'
+        config_file = os.path.join('dicty', config_file_)
+        pre_folder = 'dicty/'
     elif 'gland' in config_file_:
-        config_file = os.path.join('misc', config_file_)
-        pre_folder = 'misc/'
+        config_file = os.path.join('dicty', config_file_)
+        pre_folder = 'dicty/'
     else:
         raise ValueError(f'unknown config file type: {config_file_}')
 
@@ -292,11 +341,11 @@ def add_pre_folder(config_file_):
 def get_log_dir(config=[]):
 
     if 'arbitrary_ode' in config.graph_model.cell_model_name:
-        l_dir = os.path.join('./log/arbitrary/')
+        l_dir = log_path('arbitrary')
     elif 'boids_ode' in config.graph_model.cell_model_name:
-        l_dir = os.path.join('./log/boids/')
+        l_dir = log_path('boids')
     elif 'gravity_ode' in config.graph_model.cell_model_name:
-        l_dir = os.path.join('./log/gravity/')
+        l_dir = log_path('gravity')
     else:
         raise ValueError(f'unknown cell model name: {config.graph_model.cell_model_name}')
 
@@ -305,7 +354,7 @@ def get_log_dir(config=[]):
 
 def create_log_dir(config=[], erase=True):
 
-    log_dir = os.path.join('.', 'log', config.config_file)
+    log_dir = log_path(config.config_file)
     print('log_dir: {}'.format(log_dir))
 
     os.makedirs(log_dir, exist_ok=True)

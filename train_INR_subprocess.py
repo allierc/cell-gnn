@@ -18,7 +18,7 @@ import matplotlib
 matplotlib.use("Agg")
 
 from cell_gnn.config import CellGNNConfig
-from cell_gnn.utils import set_device, add_pre_folder
+from cell_gnn.utils import set_device, add_pre_folder, config_path, log_path
 from cell_gnn.models.inr_trainer import data_train_INR
 
 warnings.filterwarnings("ignore", message="pkg_resources is deprecated as an API")
@@ -67,9 +67,8 @@ if __name__ == "__main__":
                 config.dataset = pre_folder + config.dataset
         elif args.config_name is not None:
             # Direct mode: config name
-            config_root = os.path.dirname(os.path.abspath(__file__)) + "/config"
             config_file, pre_folder = add_pre_folder(args.config_name)
-            config = CellGNNConfig.from_yaml(f"{config_root}/{config_file}.yaml")
+            config = CellGNNConfig.from_yaml(config_path(f"{config_file}.yaml"))
             config.dataset = pre_folder + config.dataset
             config.config_file = pre_folder + args.config_name
         else:
@@ -94,7 +93,7 @@ if __name__ == "__main__":
 
         # If log_file specified, copy results.log content there for the parallel harness
         if args.log_file:
-            log_dir = f'log/{config.config_file}'
+            log_dir = log_path(config.config_file)
             results_path = f'./{log_dir}/tmp_training/inr/results.log'
             if os.path.exists(results_path):
                 with open(results_path, 'r') as rf:

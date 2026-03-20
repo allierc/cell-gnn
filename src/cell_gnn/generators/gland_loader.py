@@ -25,7 +25,7 @@ from tqdm import trange
 
 from cell_gnn.cell_state import CellState
 from cell_gnn.figure_style import default_style
-from cell_gnn.utils import choose_boundary_values, edges_radius_blockwise
+from cell_gnn.utils import choose_boundary_values, edges_radius_blockwise, graphs_data_path
 from cell_gnn.zarr_io import ZarrSimulationWriterV3, ZarrArrayWriter, save_edge_index
 
 
@@ -297,7 +297,7 @@ def _plot_gland_frame(pos, edge_index, t_idx, run, dataset_name, plot_bounds,
     ax.set_title(f'Gland frame {t_idx} ({n_cells} cells, {n_total_edges} edges)',
                  fontsize=default_style.font_size, color=default_style.foreground)
 
-    default_style.savefig(fig, f"graphs_data/{dataset_name}/Fig/Fig_{run}_{t_idx:06d}.png")
+    default_style.savefig(fig, f"{graphs_data_path(dataset_name)}/Fig/Fig_{run}_{t_idx:06d}.png")
 
 
 # ---------------------------------------------------------------------------
@@ -319,7 +319,7 @@ def load_from_gland(
     print(f"\n=== Loading Gland data into {dataset_name} ===")
     print(f"  data root: {GLAND_DATA_ROOT}")
 
-    folder = f"./graphs_data/{dataset_name}/"
+    folder = f"{graphs_data_path(dataset_name)}/"
     os.makedirs(folder, exist_ok=True)
     os.makedirs(f"{folder}/Fig/", exist_ok=True)
 
@@ -390,7 +390,7 @@ def load_from_gland(
     cell_type = torch.zeros(max_n, dtype=torch.long)
 
     run = 0
-    run_path = f"graphs_data/{dataset_name}/x_list_{run}"
+    run_path = f"{graphs_data_path(dataset_name)}/x_list_{run}"
 
     trange_obj = trange(n_frames, ncols=150, desc="  processing Gland")
     for t_idx in trange_obj:
@@ -446,7 +446,7 @@ def load_from_gland(
         time_chunks=min(2000, n_frames),
     )
     y_writer = ZarrArrayWriter(
-        path=f"graphs_data/{dataset_name}/y_list_{run}",
+        path=f"{graphs_data_path(dataset_name)}/y_list_{run}",
         n_cells=max_n,
         n_features=dimension,
         time_chunks=min(2000, n_frames),

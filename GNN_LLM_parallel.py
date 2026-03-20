@@ -16,7 +16,7 @@ from cell_gnn.models.graph_trainer import data_train, data_test
 from cell_gnn.models.exploration_tree import compute_ucb_scores
 from cell_gnn.models.plot_exploration_tree import parse_ucb_scores, plot_ucb_tree
 from cell_gnn.models.utils import save_exploration_artifacts
-from cell_gnn.utils import set_device, add_pre_folder
+from cell_gnn.utils import set_device, add_pre_folder, config_path, log_path
 
 import warnings
 warnings.filterwarnings("ignore", message="pkg_resources is deprecated as an API")
@@ -275,9 +275,9 @@ if __name__ == "__main__":
     # Claude mode setup
     # -----------------------------------------------------------------------
     root_dir = os.path.dirname(os.path.abspath(__file__))
-    config_root = root_dir + "/config"
+    config_root = config_path()
     llm_dir = f"{root_dir}/LLM"
-    exploration_dir = f"{root_dir}/log/Claude_exploration/{instruction_name}_parallel"
+    exploration_dir = log_path('Claude_exploration', f'{instruction_name}_parallel')
 
     # fresh start (default) or auto-resume (--resume flag)
     if args.resume:

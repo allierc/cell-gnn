@@ -18,16 +18,16 @@ from cell_gnn.config import CellGNNConfig
 from cell_gnn.models.utils import choose_training_model, get_type_list
 from cell_gnn.plot import get_embedding
 from cell_gnn.sparsify import EmbeddingCluster, sparsify_cluster
-from cell_gnn.utils import to_numpy
+from cell_gnn.utils import to_numpy, config_path, log_path
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # --- Load config and model ---
-config = CellGNNConfig.from_yaml('config/arbitrary/arbitrary.yaml')
+config = CellGNNConfig.from_yaml(config_path('arbitrary/arbitrary.yaml'))
 n_cells = config.simulation.n_cells
 n_cell_types = config.simulation.n_cell_types
 dataset_name = config.dataset
-log_dir = f'log/{dataset_name}/{dataset_name}'
+log_dir = log_path(dataset_name, dataset_name)
 
 model, bc_pos, bc_dpos = choose_training_model(config, device)
 

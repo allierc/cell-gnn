@@ -27,6 +27,7 @@ from cell_gnn.utils import (
     edges_radius_blockwise,
     NeighborCache,
     choose_boundary_values,
+    graphs_data_path,
 )
 
 
@@ -49,8 +50,8 @@ def data_generate(
     print("")
     print(f"dataset_name: {dataset_name}")
 
-    if (os.path.isfile(f"./graphs_data/{dataset_name}/x_list_0.npy")) | (
-        os.path.isfile(f"./graphs_data/{dataset_name}/x_list_0.pt")
+    if (os.path.isfile(f"{graphs_data_path(dataset_name)}/x_list_0.npy")) | (
+        os.path.isfile(f"{graphs_data_path(dataset_name)}/x_list_0.pt")
     ):
         print("watch out: data already generated")
         # return
@@ -159,10 +160,10 @@ def load_from_data(
     delta_t = sim.delta_t
     cmap = CustomColorMap(config=config)
 
-    print(f"loading data from graphs_data/{data_file} ...")
+    print(f"loading data from {graphs_data_path(data_file)} ...")
 
     # load NPZ
-    data = np.load(f"graphs_data/{data_file}", allow_pickle=True)
+    data = np.load(graphs_data_path(data_file), allow_pickle=True)
     X = data['X']           # (T, N, dim) positions
     FPAIR = data['FPAIR']   # (T, N, dim) pair forces
     params = data['params'].item() if hasattr(data['params'], 'item') else data['params']
@@ -194,7 +195,7 @@ def load_from_data(
         print(f"  prediction: {prediction} → target = velocity (1st derivative)")
 
     # prepare output directory
-    folder = f"./graphs_data/{dataset_name}/"
+    folder = f"{graphs_data_path(dataset_name)}/"
     os.makedirs(folder, exist_ok=True)
     fig_folder = f"{folder}/Fig/"
     os.makedirs(fig_folder, exist_ok=True)
@@ -209,13 +210,13 @@ def load_from_data(
     run = 0
 
     x_writer = ZarrSimulationWriterV3(
-        path=f"graphs_data/{dataset_name}/x_list_{run}",
+        path=f"{graphs_data_path(dataset_name)}/x_list_{run}",
         n_cells=n_cells,
         dimension=dimension,
         time_chunks=2000,
     )
     y_writer = ZarrArrayWriter(
-        path=f"graphs_data/{dataset_name}/y_list_{run}",
+        path=f"{graphs_data_path(dataset_name)}/y_list_{run}",
         n_cells=n_cells,
         n_features=dimension,
         time_chunks=2000,
@@ -313,7 +314,7 @@ def load_from_data(
 
                 plt.tight_layout()
                 num = f"{t:06}"
-                default_style.savefig(fig, f"graphs_data/{dataset_name}/Fig/Fig_{run}_{num}.png")
+                default_style.savefig(fig, f"{graphs_data_path(dataset_name)}/Fig/Fig_{run}_{num}.png")
 
     n_written = x_writer.finalize()
     y_writer.finalize()
@@ -359,7 +360,7 @@ def data_generate_cell(
     cmap = CustomColorMap(config=config)
     dataset_name = config.dataset
 
-    folder = f"./graphs_data/{dataset_name}/"
+    folder = f"{graphs_data_path(dataset_name)}/"
     if erase:
         import shutil
         files = glob.glob(f"{folder}/*")
@@ -377,8 +378,8 @@ def data_generate_cell(
                 else:
                     os.remove(f)
     os.makedirs(folder, exist_ok=True)
-    os.makedirs(f"./graphs_data/{dataset_name}/Fig/", exist_ok=True)
-    files = glob.glob(f"./graphs_data/{dataset_name}/Fig/*")
+    os.makedirs(f"{graphs_data_path(dataset_name)}/Fig/", exist_ok=True)
+    files = glob.glob(f"{graphs_data_path(dataset_name)}/Fig/*")
     for f in files:
         os.remove(f)
 
@@ -401,7 +402,7 @@ def data_generate_cell(
         ax.set_title(f"Spring force profile (mu_f={p[0, 5]:.4f})")
         ax.legend()
         plt.tight_layout()
-        fig.savefig(f"graphs_data/{dataset_name}/spring_force_profile.png", dpi=150)
+        fig.savefig(f"{graphs_data_path(dataset_name)}/spring_force_profile.png", dpi=150)
         plt.close(fig)
 
     cell_dropout_mask = np.arange(n_cells)
@@ -429,13 +430,13 @@ def data_generate_cell(
 
     # zarr V3 writers for incremental saving (memory efficient)
     x_writer = ZarrSimulationWriterV3(
-        path=f"graphs_data/{dataset_name}/x_list_{run}",
+        path=f"{graphs_data_path(dataset_name)}/x_list_{run}",
         n_cells=n_cells,
         dimension=dimension,
         time_chunks=2000,
     )
     y_writer = ZarrArrayWriter(
-        path=f"graphs_data/{dataset_name}/y_list_{run}",
+        path=f"{graphs_data_path(dataset_name)}/y_list_{run}",
         n_cells=n_cells,
         n_features=dimension,
         time_chunks=2000,
@@ -599,7 +600,7 @@ def data_generate_cell(
                     plt.xticks([])
                     plt.yticks([])
                 plt.tight_layout()
-                active_style.savefig(fig, f"graphs_data/{dataset_name}/Fig/Fig_{run}_{it}.jpg")
+                active_style.savefig(fig, f"{graphs_data_path(dataset_name)}/Fig/Fig_{run}_{it}.jpg")
 
 
             if "color" in style:
@@ -619,7 +620,7 @@ def data_generate_cell(
                     plt.xticks([])
                     plt.yticks([])
                     plt.tight_layout()
-                    active_style.savefig(fig, f"graphs_data/{dataset_name}/Fig/Lut_Fig_{run}_{it}.jpg")
+                    active_style.savefig(fig, f"{graphs_data_path(dataset_name)}/Fig/Lut_Fig_{run}_{it}.jpg")
 
                     fig, ax = active_style.figure(height=12)
                     plt.scatter(
@@ -634,7 +635,7 @@ def data_generate_cell(
                     plt.xticks([])
                     plt.yticks([])
                     plt.tight_layout()
-                    active_style.savefig(fig, f"graphs_data/{dataset_name}/Fig/Rot_{run}_Fig{it}.jpg")
+                    active_style.savefig(fig, f"{graphs_data_path(dataset_name)}/Fig/Rot_{run}_Fig{it}.jpg")
 
                 elif (mc.cell_model_name in ("arbitrary_ode", "dicty_spring_force_ode")) & (dimension == 3):
                     from mpl_toolkits.mplot3d.art3d import Line3DCollection
@@ -710,7 +711,7 @@ def data_generate_cell(
                     ax2.set_aspect("equal")
 
                     plt.tight_layout()
-                    active_style.savefig(fig, f"graphs_data/{dataset_name}/Fig/Fig_{run}_{it}.png")
+                    active_style.savefig(fig, f"{graphs_data_path(dataset_name)}/Fig/Fig_{run}_{it}.png")
 
                 else:
                     from matplotlib.collections import LineCollection as LC2
@@ -774,7 +775,7 @@ def data_generate_cell(
                     plt.tight_layout()
 
                     num = f"{it:06}"
-                    active_style.savefig(fig, f"graphs_data/{dataset_name}/Fig/Fig_{run}_{num}.png")
+                    active_style.savefig(fig, f"{graphs_data_path(dataset_name)}/Fig/Fig_{run}_{num}.png")
 
     if save:
         # finalize zarr writers
@@ -785,18 +786,18 @@ def data_generate_cell(
         if has_cell_dropout:
             torch.save(
                 x_removed_list,
-                f"graphs_data/{dataset_name}/x_removed_list_{run}.pt",
+                f"{graphs_data_path(dataset_name)}/x_removed_list_{run}.pt",
             )
             np.save(
-                f"graphs_data/{dataset_name}/cell_dropout_mask.npy",
+                f"{graphs_data_path(dataset_name)}/cell_dropout_mask.npy",
                 cell_dropout_mask,
             )
             np.save(
-                f"graphs_data/{dataset_name}/inv_cell_dropout_mask.npy",
+                f"{graphs_data_path(dataset_name)}/inv_cell_dropout_mask.npy",
                 inv_cell_dropout_mask,
             )
 
-        torch.save(model.p, f"graphs_data/{dataset_name}/model_p.pt")
+        torch.save(model.p, f"{graphs_data_path(dataset_name)}/model_p.pt")
 
         # print edge statistics
         if edge_counts_per_frame:
@@ -847,7 +848,7 @@ def data_generate_cell_field(
     bounce_coeff = sim.bounce_coeff
 
     # Create log directory
-    log_dir = f"./graphs_data/{dataset_name}/"
+    log_dir = f"{graphs_data_path(dataset_name)}/"
     log_file = f"{log_dir}/generator.log"
     os.makedirs(log_dir, exist_ok=True)
     logging.basicConfig(
@@ -857,7 +858,7 @@ def data_generate_cell_field(
     logger.setLevel(logging.INFO)
     logger.info(config)
 
-    folder = f"./graphs_data/{dataset_name}/"
+    folder = f"{graphs_data_path(dataset_name)}/"
     if erase:
         import shutil as _shutil
         files = glob.glob(f"{folder}/Fig/*")
@@ -868,8 +869,8 @@ def data_generate_cell_field(
                 else:
                     os.remove(f)
     os.makedirs(folder, exist_ok=True)
-    os.makedirs(f"./graphs_data/{dataset_name}/Fig/", exist_ok=True)
-    files = glob.glob(f"./graphs_data/{dataset_name}/Fig/*")
+    os.makedirs(f"{graphs_data_path(dataset_name)}/Fig/", exist_ok=True)
+    files = glob.glob(f"{graphs_data_path(dataset_name)}/Fig/*")
     for f in files:
         os.remove(f)
     copyfile(os.path.realpath(__file__), os.path.join(folder, "generation_code.py"))
@@ -896,25 +897,25 @@ def data_generate_cell_field(
 
     # zarr V3 writers for incremental saving (memory efficient)
     x_writer = ZarrSimulationWriterV3(
-        path=f"graphs_data/{dataset_name}/x_list_{run}",
+        path=f"{graphs_data_path(dataset_name)}/x_list_{run}",
         n_cells=n_cells,
         dimension=dimension,
         time_chunks=2000,
     )
     y_writer = ZarrArrayWriter(
-        path=f"graphs_data/{dataset_name}/y_list_{run}",
+        path=f"{graphs_data_path(dataset_name)}/y_list_{run}",
         n_cells=n_cells,
         n_features=dimension,
         time_chunks=2000,
     )
     x_mesh_writer = ZarrSimulationWriterV3(
-        path=f"graphs_data/{dataset_name}/x_mesh_list_{run}",
+        path=f"{graphs_data_path(dataset_name)}/x_mesh_list_{run}",
         n_cells=n_nodes,
         dimension=dimension,
         time_chunks=2000,
     )
     y_mesh_writer = ZarrArrayWriter(
-        path=f"graphs_data/{dataset_name}/y_mesh_list_{run}",
+        path=f"{graphs_data_path(dataset_name)}/y_mesh_list_{run}",
         n_cells=n_nodes,
         n_features=2,
         time_chunks=2000,
@@ -932,7 +933,7 @@ def data_generate_cell_field(
     mesh_state.field[mask_mesh == 0.0] = 0.0
     edge_cache = NeighborCache()
 
-    torch.save(mesh_data, f"graphs_data/{dataset_name}/mesh_data_{run}.pt")
+    torch.save(mesh_data, f"{graphs_data_path(dataset_name)}/mesh_data_{run}.pt")
 
     check_and_clear_memory(
         device=device,
@@ -945,7 +946,7 @@ def data_generate_cell_field(
     for it in trange(sim.start_frame, n_frames + 1, ncols=100):
         if ("siren" in mc.field_type) & (it >= 0):
             im = imread(
-                f"graphs_data/{sim.node_value_map}"
+                graphs_data_path(sim.node_value_map)
             )
             im = im[it].squeeze()
             im = np.rot90(im, 3)
@@ -1099,7 +1100,7 @@ def data_generate_cell_field(
             plt.xticks([])
             plt.yticks([])
             plt.tight_layout()
-            default_style.savefig(fig, f"graphs_data/{dataset_name}/Fig/Fig_{run}_{it}.jpg")
+            default_style.savefig(fig, f"{graphs_data_path(dataset_name)}/Fig/Fig_{run}_{it}.jpg")
 
     if save:
         # finalize zarr writers
@@ -1112,22 +1113,22 @@ def data_generate_cell_field(
         if has_cell_dropout:
             torch.save(
                 x_removed_list,
-                f"graphs_data/{dataset_name}/x_removed_list_{run}.pt",
+                f"{graphs_data_path(dataset_name)}/x_removed_list_{run}.pt",
             )
             np.save(
-                f"graphs_data/{dataset_name}/cell_dropout_mask.npy",
+                f"{graphs_data_path(dataset_name)}/cell_dropout_mask.npy",
                 cell_dropout_mask,
             )
             np.save(
-                f"graphs_data/{dataset_name}/inv_cell_dropout_mask.npy",
+                f"{graphs_data_path(dataset_name)}/inv_cell_dropout_mask.npy",
                 inv_cell_dropout_mask,
             )
 
         torch.save(
-            edge_p_p_list, f"graphs_data/{dataset_name}/edge_p_p_list{run}.pt"
+            edge_p_p_list, f"{graphs_data_path(dataset_name)}/edge_p_p_list{run}.pt"
         )
         torch.save(
-            edge_f_p_list, f"graphs_data/{dataset_name}/edge_f_p_list{run}.pt"
+            edge_f_p_list, f"{graphs_data_path(dataset_name)}/edge_f_p_list{run}.pt"
         )
 
     print('data generated...')

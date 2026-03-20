@@ -11,8 +11,15 @@ build/
 .venv/
 env/
 venv/
+
+# Data root config (per-environment, not tracked)
+data_paths.json
+
+# Mounted directories (live in GraphData/, not in the repo)
+config/
 graphs_data/
 log/
+
 *.pt
 *.npy
 *.npz

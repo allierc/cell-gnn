@@ -61,7 +61,8 @@ def extract_features(model, config, device):
     config_model = config.graph_model.particle_model_name
     max_radius = sim.max_radius
 
-    x_ts = load_simulation_data(f'graphs_data/{dataset_name}/x_list_0', dimension)
+    from cell_gnn.utils import graphs_data_path
+    x_ts = load_simulation_data(graphs_data_path(dataset_name, 'x_list_0'), dimension)
     type_list = to_numpy(x_ts.frame(0).particle_type[:n_particles]).astype(int)
 
     embedding = get_embedding(model.a, 0)[:n_particles]
@@ -198,9 +199,9 @@ def sweep_blind_clustering(feature_sets, type_list, n_particle_types, seed=42):
 
 def load_config_and_model(config_name, best_model='best', device_override=None):
     """Load a config and its trained model. Returns (config, model, type_list, features)."""
-    config_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config')
+    from cell_gnn.utils import config_path, log_path
     config_file, pre_folder = add_pre_folder(config_name)
-    config = ParticleGNNConfig.from_yaml(f'{config_root}/{config_file}.yaml')
+    config = ParticleGNNConfig.from_yaml(config_path(f'{config_file}.yaml'))
     config.dataset = pre_folder + config.dataset
     config.config_file = pre_folder + config_name
 
@@ -211,7 +212,7 @@ def load_config_and_model(config_name, best_model='best', device_override=None):
 
     model, bc_pos, bc_dpos = choose_training_model(config, device)
 
-    log_dir = f'log/{config.config_file}'
+    log_dir = log_path(config.config_file)
     ynorm = torch.load(f'{log_dir}/ynorm.pt', map_location=device, weights_only=True)
     vnorm = torch.load(f'{log_dir}/vnorm.pt', map_location=device, weights_only=True)
     if vnorm == 0:

@@ -108,8 +108,8 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
     time.sleep(0.5)
     print('load data ...')
 
-    x_ts = load_simulation_data(f'graphs_data/{dataset_name}/x_list_0', dimension)
-    y_raw = load_raw_array(f'graphs_data/{dataset_name}/y_list_0')
+    x_ts = load_simulation_data(f'{graphs_data_path(dataset_name)}/x_list_0', dimension)
+    y_raw = load_raw_array(f'{graphs_data_path(dataset_name)}/y_list_0')
     n_cells_max = x_ts.n_cells
     n_ts_frames = x_ts.n_frames
 
@@ -553,9 +553,9 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
         n_nodes = sim.n_nodes
         n_nodes_per_axis = int(np.sqrt(n_nodes))
 
-    log_dir = 'log/' + config.config_file
-    os.makedirs(f"./{log_dir}/tmp_recons", exist_ok=True)
-    files = glob.glob(f"./{log_dir}/tmp_recons/*")
+    log_dir = log_path(config.config_file)
+    os.makedirs(f"{log_dir}/tmp_recons", exist_ok=True)
+    files = glob.glob(f"{log_dir}/tmp_recons/*")
     for f in files:
         os.remove(f)
 
@@ -577,17 +577,17 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
 
     print(f'load data ...')
 
-    if os.path.exists(f'graphs_data/{dataset_name}/x_list_{run}.pt'):
-        x_raw = torch.load(f'graphs_data/{dataset_name}/x_list_{run}.pt', map_location=device)
-        y_raw = torch.load(f'graphs_data/{dataset_name}/y_list_{run}.pt', map_location=device)
+    if os.path.exists(f'{graphs_data_path(dataset_name)}/x_list_{run}.pt'):
+        x_raw = torch.load(f'{graphs_data_path(dataset_name)}/x_list_{run}.pt', map_location=device)
+        y_raw = torch.load(f'{graphs_data_path(dataset_name)}/y_list_{run}.pt', map_location=device)
         x_ts = CellTimeSeries.from_packed(x_raw, dimension)
         ynorm = torch.load(f'{log_dir}/ynorm.pt', map_location=device, weights_only=True)
         vnorm = torch.load(f'{log_dir}/vnorm.pt', map_location=device, weights_only=True)
         if vnorm == 0:
             vnorm = ynorm
     else:
-        x_ts = load_simulation_data(f'graphs_data/{dataset_name}/x_list_{run}', dimension).to(device)
-        y_raw_np = load_raw_array(f'graphs_data/{dataset_name}/y_list_{run}')
+        x_ts = load_simulation_data(f'{graphs_data_path(dataset_name)}/x_list_{run}', dimension).to(device)
+        y_raw_np = load_raw_array(f'{graphs_data_path(dataset_name)}/y_list_{run}')
         y_raw = torch.tensor(y_raw_np, dtype=torch.float32, device=device)
         x0_frame = x_ts.frame(0)
         if ('PDE_MLPs' not in mc.cell_model_name) & ('PDE_F' not in mc.cell_model_name) & ('PDE_M' not in mc.cell_model_name):
@@ -1030,7 +1030,7 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
     np.save(f'./{log_dir}/results/residual_field.npy', residual_arr)
 
     residual_writer = ZarrArrayWriter(
-        path=f'graphs_data/{dataset_name}/residual_list_{run}',
+        path=f'{graphs_data_path(dataset_name)}/residual_list_{run}',
         n_cells=n_cells, n_features=dimension)
     for frame in residual_arr:
         residual_writer.append(frame)
@@ -1038,7 +1038,7 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
 
     residual_mag = np.sqrt((residual_arr ** 2).sum(axis=-1))
     print(f'Residual field: mean magnitude = {residual_mag.mean():.6f}, max = {residual_mag.max():.6f}')
-    print(f'Saved to graphs_data/{dataset_name}/residual_list_{run}.zarr')
+    print(f'Saved to {graphs_data_path(dataset_name)}/residual_list_{run}.zarr')
 
     # Write structured results log
     results = {
@@ -1099,14 +1099,14 @@ def data_train_cell_field(config, erase, best_model, device, log_file=None):
     logger.info(f'Graph files N: {n_runs}')
     time.sleep(0.5)
 
-    x_ts = load_simulation_data(f'graphs_data/{dataset_name}/x_list_0', dimension)
-    y_raw_np = load_raw_array(f'graphs_data/{dataset_name}/y_list_0')
+    x_ts = load_simulation_data(f'{graphs_data_path(dataset_name)}/x_list_0', dimension)
+    y_raw_np = load_raw_array(f'{graphs_data_path(dataset_name)}/y_list_0')
     y_raw = torch.tensor(y_raw_np, dtype=torch.float32, device=device)
     n_cells_max = x_ts.n_cells
 
-    edge_p_p_list = torch.load(f'graphs_data/{dataset_name}/edge_p_p_list0.pt', map_location=device,
+    edge_p_p_list = torch.load(f'{graphs_data_path(dataset_name)}/edge_p_p_list0.pt', map_location=device,
                                weights_only=False)
-    edge_f_p_list = torch.load(f'graphs_data/{dataset_name}/edge_f_p_list0.pt', map_location=device,
+    edge_f_p_list = torch.load(f'{graphs_data_path(dataset_name)}/edge_f_p_list0.pt', map_location=device,
                                weights_only=False)
 
     x = x_ts.frame(0).to_packed().to(device)
@@ -1133,8 +1133,8 @@ def data_train_cell_field(config, erase, best_model, device, log_file=None):
     logger.info(f'vnorm ynorm: {to_numpy(vnorm)} {to_numpy(ynorm)}')
 
     time.sleep(0.5)
-    mesh_ts = load_field_data(f'graphs_data/{dataset_name}/x_mesh_list_0', dimension)
-    y_mesh_raw_np = load_raw_array(f'graphs_data/{dataset_name}/y_mesh_list_0')
+    mesh_ts = load_field_data(f'{graphs_data_path(dataset_name)}/x_mesh_list_0', dimension)
+    y_mesh_raw_np = load_raw_array(f'{graphs_data_path(dataset_name)}/y_mesh_list_0')
     y_mesh_raw = torch.tensor(y_mesh_raw_np, dtype=torch.float32, device=device)
     h = y_mesh_raw[0].clone().detach()
     for k in range(n_frames - 5):
@@ -1144,7 +1144,7 @@ def data_train_cell_field(config, erase, best_model, device, log_file=None):
     print(f'hnorm: {to_numpy(hnorm)}')
     logger.info(f'hnorm: {to_numpy(hnorm)}')
     time.sleep(0.5)
-    mesh_data = torch.load(f'graphs_data/{dataset_name}/mesh_data_0.pt', map_location=device, weights_only=False)
+    mesh_data = torch.load(f'{graphs_data_path(dataset_name)}/mesh_data_0.pt', map_location=device, weights_only=False)
     mask_mesh = mesh_data['mask']
     mask_mesh = mask_mesh.repeat(batch_size, 1)
     edge_index_mesh = mesh_data['edge_index']

@@ -28,7 +28,7 @@ import optuna
 from optuna.samplers import TPESampler
 
 from cell_gnn.config import CellGNNConfig
-from cell_gnn.utils import add_pre_folder
+from cell_gnn.utils import add_pre_folder, config_path, log_path
 
 warnings.filterwarnings("ignore", message="pkg_resources is deprecated as an API")
 
@@ -129,7 +129,7 @@ def _objective_fn(trial, base_config_path, exploration_dir, pre_folder, device_s
 
         elapsed_min = (time.time() - t_start) / 60.0
 
-        log_dir = f'log/{config.config_file}'
+        log_dir = log_path(config.config_file)
         results = parse_results_log(f'./{log_dir}/tmp_training/inr/results.log')
 
         final_r2 = float(results.get('final_r2', 0.0))
@@ -286,7 +286,7 @@ def main():
     # Paths
     root_dir = os.path.dirname(os.path.abspath(__file__))
     config_file, pre_folder = add_pre_folder(args.dataset)
-    base_config_path = os.path.join(root_dir, 'config', f'{config_file}.yaml')
+    base_config_path = config_path(f'{config_file}.yaml')
 
     if not os.path.exists(base_config_path):
         print(f"Error: config not found: {base_config_path}", file=sys.stderr)

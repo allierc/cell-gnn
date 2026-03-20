@@ -23,6 +23,7 @@ from tqdm import trange
 
 from cell_gnn.cell_state import CellState, VertexTimeSeries
 from cell_gnn.figure_style import default_style
+from cell_gnn.utils import graphs_data_path
 from cell_gnn.zarr_io import (
     ZarrSimulationWriterV3, save_edge_index,
     save_vertex_indices, save_vertex_timeseries,
@@ -257,7 +258,7 @@ def load_from_embryo(
 
     print(f"\n=== Loading embryo data into {dataset_name} ===")
 
-    folder = f"./graphs_data/{dataset_name}/"
+    folder = f"{graphs_data_path(dataset_name)}/"
     os.makedirs(folder, exist_ok=True)
     os.makedirs(f"{folder}/Fig/", exist_ok=True)
 
@@ -440,7 +441,7 @@ def load_from_embryo(
             print("  save=False, skipping zarr write")
             continue
 
-        run_path = f"graphs_data/{dataset_name}/x_list_{run}"
+        run_path = f"{graphs_data_path(dataset_name)}/x_list_{run}"
 
         # write zarr V3
         x_writer = ZarrSimulationWriterV3(
@@ -600,4 +601,4 @@ def _plot_embryo_frame(pos, edge_index, vertex_pos, vertex_indices,
                  fontsize=default_style.font_size, color=default_style.foreground)
 
     num = f"{t_idx:06}"
-    default_style.savefig(fig, f"graphs_data/{dataset_name}/Fig/Fig_{run}_{num}.png")
+    default_style.savefig(fig, f"{graphs_data_path(dataset_name)}/Fig/Fig_{run}_{num}.png")

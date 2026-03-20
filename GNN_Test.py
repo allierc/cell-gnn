@@ -36,7 +36,7 @@ import time
 from datetime import datetime
 
 from cell_gnn.config import CellGNNConfig
-from cell_gnn.utils import set_device, add_pre_folder
+from cell_gnn.utils import set_device, add_pre_folder, config_path, log_path
 
 
 ALL_CONFIGS = ['arbitrary', 'boids', 'gravity']
@@ -496,7 +496,7 @@ def main():
     args = parser.parse_args()
 
     root_dir = os.path.dirname(os.path.abspath(__file__))
-    config_root = os.path.join(root_dir, 'config')
+    config_root = config_path()
     now = datetime.now()
     timestamp_str = now.strftime('%Y-%m-%d_%H-%M-%S')
 
@@ -640,7 +640,7 @@ def main():
     # Phase 6: Append to history
     if not args.save_reference:
         print(f"\033[93msave results\033[0m")
-        history_path = os.path.join(root_dir, 'log', 'test_history.md')
+        history_path = log_path('test_history.md')
         append_test_history(
             history_path, timestamp_str,
             get_git_commit(), get_git_branch(),

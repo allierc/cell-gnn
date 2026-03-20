@@ -7,7 +7,7 @@ from cell_gnn.graph_utils import compute_mesh_laplacian
 
 from cell_gnn.models.registry import get_simulator_class
 from cell_gnn.cell_state import CellState, FieldState
-from cell_gnn.utils import choose_boundary_values, to_numpy, get_equidistant_points
+from cell_gnn.utils import choose_boundary_values, to_numpy, get_equidistant_points, graphs_data_path
 
 
 def choose_model(config=[], W=[], device=[]):
@@ -169,7 +169,7 @@ def init_mesh(config, device):
     pos[0:n_nodes, 0:1] = x_grid[0:n_nodes]
     pos[0:n_nodes, 1:2] = y_grid[0:n_nodes]
 
-    i0 = imread(f'graphs_data/{node_value_map}')
+    i0 = imread(graphs_data_path(node_value_map))
     if len(i0.shape) == 2:
         i0 = np.flipud(i0)
         values = i0[(to_numpy(pos[:, 1]) * 255).astype(int), (to_numpy(pos[:, 0]) * 255).astype(int)]

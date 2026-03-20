@@ -23,7 +23,7 @@ import yaml
 import warnings
 
 from cell_gnn.config import CellGNNConfig
-from cell_gnn.utils import set_device, add_pre_folder
+from cell_gnn.utils import set_device, add_pre_folder, config_path, log_path
 
 warnings.filterwarnings("ignore", message="pkg_resources is deprecated as an API")
 
@@ -334,9 +334,9 @@ if __name__ == "__main__":
     # Setup
     # -----------------------------------------------------------------------
     root_dir = os.path.dirname(os.path.abspath(__file__))
-    config_root = root_dir + "/config"
+    config_root = config_path()
     llm_dir = f"{root_dir}/LLM"
-    exploration_dir = f"{root_dir}/log/Claude_exploration/{instruction_name}_parallel"
+    exploration_dir = log_path('Claude_exploration', f'{instruction_name}_parallel')
 
     # fresh start or resume
     if args.resume:
@@ -583,7 +583,7 @@ Write the planned mutations to the working memory file."""
                     )
 
                     # Copy results.log to analysis_log_path
-                    inr_log_dir = f'log/{config.config_file}'
+                    inr_log_dir = log_path(config.config_file)
                     results_path = f'./{inr_log_dir}/tmp_training/inr/results.log'
                     if os.path.exists(results_path):
                         shutil.copy2(results_path, analysis_log_paths[slot])

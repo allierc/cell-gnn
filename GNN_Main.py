@@ -8,7 +8,7 @@ matplotlib.use("Agg")
 from cell_gnn.config import CellGNNConfig
 from cell_gnn.generators.graph_data_generator import data_generate
 from cell_gnn.models.graph_trainer import data_train, data_test
-from cell_gnn.utils import set_device, add_pre_folder
+from cell_gnn.utils import set_device, add_pre_folder, config_path
 
 warnings.filterwarnings("ignore", message="pkg_resources is deprecated as an API")
 
@@ -40,9 +40,8 @@ if __name__ == "__main__":
 
     for config_file_ in config_list:
         print(" ")
-        config_root = os.path.dirname(os.path.abspath(__file__)) + "/config"
         config_file, pre_folder = add_pre_folder(config_file_)
-        config = CellGNNConfig.from_yaml(f"{config_root}/{config_file}.yaml")
+        config = CellGNNConfig.from_yaml(config_path(f"{config_file}.yaml"))
         config.dataset = pre_folder + config.dataset
         config.config_file = pre_folder + config_file_
         if args.n_epochs is not None:
