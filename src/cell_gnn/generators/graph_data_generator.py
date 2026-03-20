@@ -647,7 +647,11 @@ def data_generate_cell(
                     _pv_ok = False
                     try:
                         import pyvista as pv
-                        pv.start_xvfb()
+                        pv.OFF_SCREEN = True
+                        try:
+                            pv.start_xvfb()
+                        except OSError:
+                            pass
                         plotter = pv.Plotter(off_screen=True, window_size=(900, 900))
                         plotter.set_background("white")
                         for n in range(n_cell_types):
