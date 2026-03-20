@@ -77,7 +77,7 @@ Each slot re-generates data with a different seed. You MAY vary these simulation
 
 | Parameter | YAML path          | Default | Explorable range |
 | --------- | ------------------ | ------- | ---------------- |
-| `delta_t` | simulation.delta_t | 0.00025 | [0.0001, 0.0025] |
+| `delta_t` | simulation.delta_t | 0.0001 | [0.00005, 0.001] |
 
 **FIXED — DO NOT change**: `n_cells` (4800), `n_cell_types` (2), `n_frames` (8000), `cell_params`, `func_params`, `sigma`, `max_radius`, `boundary`, `dimension`.
 
