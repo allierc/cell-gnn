@@ -639,30 +639,55 @@ def data_generate_cell(
                     active_style.savefig(fig, f"{graphs_data_path(dataset_name)}/Fig/Rot_{run}_Fig{it}.jpg")
 
                 elif (mc.cell_model_name in ("arbitrary_ode", "dicty_spring_force_ode")) & (dimension == 3):
-                    import pyvista as pv
-                    pv.start_xvfb()
                     from matplotlib.collections import LineCollection as LC
 
                     pos_np = to_numpy(x.pos)
 
-                    # --- Left panel: pyvista 3D view ---
-                    plotter = pv.Plotter(off_screen=True, window_size=(900, 900))
-                    plotter.set_background("white")
-                    for n in range(n_cell_types):
-                        pts = pos_np[to_numpy(index_cells[n])]
-                        if len(pts) > 0:
-                            cloud = pv.PolyData(pts)
-                            color = cmap.color(n)
-                            plotter.add_points(cloud, color=color[:3], point_size=3, opacity=0.6)
-                    cube = pv.Cube(center=(0.5, 0.5, 0.5), x_length=1.0, y_length=1.0, z_length=1.0)
-                    frame = cube.extract_all_edges()
-                    plotter.add_mesh(frame, color='grey', line_width=1.0, opacity=0.5)
-                    plotter.view_vector((0.7, 1.3, 0.5))
-                    plotter.enable_eye_dome_lighting()
-                    plotter.camera.zoom(1.3)
-                    pv_path = f"{graphs_data_path(dataset_name)}/Fig/Fig3D_{run}_{it}.png"
-                    plotter.screenshot(pv_path)
-                    plotter.close()
+                    # --- Left panel: pyvista 3D view (fallback to matplotlib) ---
+                    _pv_ok = False
+                    try:
+                        import pyvista as pv
+                        pv.start_xvfb()
+                        plotter = pv.Plotter(off_screen=True, window_size=(900, 900))
+                        plotter.set_background("white")
+                        for n in range(n_cell_types):
+                            pts = pos_np[to_numpy(index_cells[n])]
+                            if len(pts) > 0:
+                                cloud = pv.PolyData(pts)
+                                color = cmap.color(n)
+                                plotter.add_points(cloud, color=color[:3], point_size=3, opacity=0.6)
+                        cube = pv.Cube(center=(0.5, 0.5, 0.5), x_length=1.0, y_length=1.0, z_length=1.0)
+                        frame = cube.extract_all_edges()
+                        plotter.add_mesh(frame, color='grey', line_width=1.0, opacity=0.5)
+                        plotter.view_vector((0.7, 1.3, 0.5))
+                        plotter.enable_eye_dome_lighting()
+                        plotter.camera.zoom(1.3)
+                        pv_path = f"{graphs_data_path(dataset_name)}/Fig/Fig3D_{run}_{it}.png"
+                        plotter.screenshot(pv_path)
+                        plotter.close()
+                        _pv_ok = True
+                    except Exception:
+                        pass
+
+                    if not _pv_ok:
+                        from mpl_toolkits.mplot3d.art3d import Line3DCollection
+                        fig3d = plt.figure(figsize=(6, 6))
+                        ax1 = fig3d.add_subplot(111, projection="3d")
+                        for n in range(n_cell_types):
+                            ax1.scatter(
+                                to_numpy(x.pos[index_cells[n], 0]),
+                                to_numpy(x.pos[index_cells[n], 1]),
+                                to_numpy(x.pos[index_cells[n], 2]),
+                                s=4, color=cmap.color(n), alpha=0.5, edgecolors="none",
+                            )
+                        ax1.set_xlim([0, 1]); ax1.set_ylim([0, 1]); ax1.set_zlim([0, 1])
+                        ax1.set_box_aspect([1, 1, 1])
+                        ax1.set_xticks([]); ax1.set_yticks([]); ax1.set_zticks([])
+                        ax1.set_xlabel("X", fontsize=8, labelpad=-12)
+                        ax1.set_ylabel("Y", fontsize=8, labelpad=-12)
+                        ax1.set_zlabel("Z", fontsize=8, labelpad=-12)
+                        plt.tight_layout()
+                        active_style.savefig(fig3d, f"{graphs_data_path(dataset_name)}/Fig/Fig3D_{run}_{it}.png")
 
                     # --- Right panel: matplotlib 2D cross-section ---
                     ei_fwd = None
