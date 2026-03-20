@@ -398,8 +398,7 @@ def run_cluster_training(state: ExplorationState, batch: BatchInfo):
             root_dir=state.root_dir,
             erase=True,
             node_name=state.node_name,
-            exploration_dir=state.exploration_dir,
-            iteration=iteration,
+            generate=state.generate_data,
         )
         if jid:
             job_ids[slot] = jid

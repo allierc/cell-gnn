@@ -25,11 +25,20 @@ def local_to_cluster(path: str, root_dir: str) -> str:
     Mounted directories (config, log, graphs_data) live under GraphData on the
     cluster, not under GraphCluster/cell-gnn. Everything else maps to CLUSTER_ROOT_DIR.
     """
+    # Resolve to absolute so relative paths (./config/...) match correctly
+    abs_path = os.path.abspath(path)
+
+    # Check if path is under data_root mount or root_dir for config/log/graphs_data
+    from cell_gnn.utils import get_data_root
+    data_root = os.path.abspath(get_data_root())
+
     for sub in ('config', 'log', 'graphs_data'):
-        local_sub = os.path.join(root_dir, sub)
-        if path.startswith(local_sub):
-            return os.path.join(CLUSTER_DATA_DIR, sub) + path[len(local_sub):]
-    return path.replace(root_dir, CLUSTER_ROOT_DIR)
+        for base in (data_root, os.path.abspath(root_dir)):
+            local_sub = os.path.join(base, sub)
+            if abs_path.startswith(local_sub):
+                return os.path.join(CLUSTER_DATA_DIR, sub) + abs_path[len(local_sub):]
+
+    return abs_path.replace(os.path.abspath(root_dir), CLUSTER_ROOT_DIR)
 
 
 def check_cluster_repo():
@@ -55,7 +64,7 @@ def check_cluster_repo():
 
 def submit_cluster_job(slot, config_path, analysis_log_path, config_file_field,
                        log_dir, root_dir, erase=True, node_name='a100',
-                       exploration_dir=None, iteration=None):
+                       generate=False):
     """Submit a single cell-gnn training job to the cluster WITHOUT -K (non-blocking).
 
     Data generation and test/plot are handled locally.
@@ -74,11 +83,8 @@ def submit_cluster_job(slot, config_path, analysis_log_path, config_file_field,
     cluster_train_cmd += f" --error_log '{cluster_error_log}'"
     if erase:
         cluster_train_cmd += " --erase"
-    if exploration_dir is not None and iteration is not None:
-        cluster_exploration_dir = local_to_cluster(exploration_dir, root_dir)
-        cluster_train_cmd += f" --exploration_dir '{cluster_exploration_dir}'"
-        cluster_train_cmd += f" --iteration {iteration}"
-        cluster_train_cmd += f" --slot {slot}"
+    if generate:
+        cluster_train_cmd += " --generate"
 
     with open(cluster_script_path, 'w') as f:
         f.write("#!/bin/bash\n")
