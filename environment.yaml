@@ -23,6 +23,7 @@ dependencies:
   - scikit-image
   - scikit-learn
   - seaborn
+  - pyvista
   - pip:
       - geomloss
       - torch_geometric
