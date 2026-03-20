@@ -668,12 +668,15 @@ def data_generate_cell(
                         plotter.camera.zoom(1.3)
                         _pv_img = plotter.screenshot(return_img=True)
                         plotter.close()
-                    except Exception:
-                        pass
+                    except Exception as _pv_err:
+                        if it == 0:
+                            print(f"\033[93m3D plot: pyvista failed ({_pv_err}), using matplotlib fallback\033[0m")
 
                     fig = plt.figure(figsize=(12, 6))
 
                     if _pv_img is not None:
+                        if it == 0:
+                            print("\033[92m3D plot: using pyvista\033[0m")
                         ax1 = fig.add_subplot(121)
                         ax1.imshow(_pv_img)
                         ax1.axis("off")
