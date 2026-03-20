@@ -107,12 +107,6 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
 
     log_dir, logger = create_log_dir(config, erase)
 
-    # Save config snapshot so test can rebuild the exact same model
-    import yaml as _yaml
-    config_snapshot_path = os.path.join(log_dir, 'models', 'config.yaml')
-    with open(config_snapshot_path, 'w') as _f:
-        _yaml.dump(config.model_dump(mode='json'), _f, default_flow_style=False, sort_keys=False)
-
     time.sleep(0.5)
     print('load data ...')
 
@@ -538,14 +532,6 @@ def data_test(config=None, config_file=None, visualize=False, style='color frame
 def data_test_cell(config=None, config_file=None, visualize=False, style='color frame', verbose=True,
                        best_model=20, step=15, ratio=1, run=0, test_mode='', sample_embedding=False,
                        cell_of_interest=1, device=[], log_file=None):
-
-    # Load config snapshot saved during training (if it exists) so the model
-    # architecture matches the checkpoint, even if the YAML was edited since.
-    log_dir_probe = log_path(config.config_file)
-    config_snapshot = os.path.join(log_dir_probe, 'models', 'config.yaml')
-    if os.path.exists(config_snapshot):
-        print(f'loading config snapshot: {config_snapshot}')
-        config = CellGNNConfig.from_yaml(config_snapshot)
 
     dataset_name = config.dataset
     sim = config.simulation
