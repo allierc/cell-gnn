@@ -646,6 +646,7 @@ def data_generate_cell(
                     # --- Left panel: 3D view (pyvista → matplotlib fallback) ---
                     _pv_img = None
                     try:
+                        os.environ.setdefault("PYVISTA_OFF_SCREEN", "true")
                         import pyvista as pv
                         pv.OFF_SCREEN = True
                         try:
@@ -665,7 +666,7 @@ def data_generate_cell(
                         plotter.add_mesh(frame, color='grey', line_width=1.0, opacity=0.5)
                         plotter.view_vector((0.7, 1.3, 0.5))
                         plotter.enable_eye_dome_lighting()
-                        plotter.camera.zoom(1.3)
+                        plotter.camera.zoom(1.1)
                         _pv_img = plotter.screenshot(return_img=True)
                         plotter.close()
                     except Exception as _pv_err:
