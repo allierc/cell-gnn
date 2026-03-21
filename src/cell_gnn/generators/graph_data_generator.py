@@ -473,7 +473,7 @@ def data_generate_cell(
             _os.environ['WGPU_FORCE_OFFSCREEN'] = '1'
             import fastplotlib as fpl
             _fpl_fig = fpl.Figure(size=(900, 900), cameras="3d")
-            _fpl_fig[0, 0].set_background_color("white")
+            _fpl_fig[0, 0].background_color = "white"
             _fpl_scatters = []
             for n in range(n_cell_types):
                 color = cmap.color(n)
