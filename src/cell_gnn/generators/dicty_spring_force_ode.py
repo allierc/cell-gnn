@@ -91,4 +91,4 @@ class DictySpringForceODE(nn.Module):
         g_off = torch.sigmoid(-(r - r_on) / delta_safe)
         F_adh = -kadh * g_on * g_off * (r - r0)
 
-        return mu_f * (F_rep + F_adh)
+        return -mu_f * (F_rep + F_adh)
