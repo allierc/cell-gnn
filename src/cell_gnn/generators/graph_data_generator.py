@@ -471,9 +471,9 @@ def data_generate_cell(
         if _use_fpl:
             import os as _os
             _os.environ['WGPU_FORCE_OFFSCREEN'] = '1'
+            import fastplotlib as fpl
             import logging
             logging.getLogger('wgpu').setLevel(logging.ERROR)
-            import fastplotlib as fpl
             _fpl_fig = fpl.Figure(shape=(1, 2), size=(1800, 900), cameras=["3d", "2d"], names=[["", ""]])
             for sp in _fpl_fig:
                 sp.background_color = (1, 1, 1, 1)
