@@ -475,7 +475,9 @@ def data_generate_cell(
             _fpl_fig = fpl.Figure(size=(900, 900), cameras="3d")
             _fpl_fig[0, 0].background_color = (1, 1, 1, 1)
             _fpl_colors = [np.array(cmap.color(n)[:3], dtype=np.float32) for n in range(n_cell_types)]
-            _fpl_fig.show()
+            # add dummy point so show() can compute bbox
+            _fpl_fig[0, 0].add_scatter(np.array([[0.5, 0.5, 0.5]], dtype=np.float32), sizes=0)
+            _fpl_fig.show(axes_visible=False)
 
     time.sleep(0.5)
     for it in trange(sim.start_frame, n_frames + 1, ncols=100):
