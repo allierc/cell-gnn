@@ -462,7 +462,7 @@ def data_generate_cell(
              "import numpy as np; "
              "fig = fpl.Figure(size=(900, 900)); "
              "fig[0, 0].add_scatter(np.zeros((3, 3), dtype=np.float32), sizes=1); "
-             "fig.show(); img = fig.export_numpy(rgb=True); "
+             "fig.show(); fig._render(); img = fig.export_numpy(rgb=True); "
              "print('ok', img.shape)"],
             capture_output=True, text=True, timeout=15,
         )
@@ -677,6 +677,7 @@ def data_generate_cell(
                                 color = cmap.color(n)
                                 _fpl_fig[0, 0].add_scatter(pts, sizes=3, colors=np.array(color[:3], dtype=np.float32))
                         _fpl_fig.show()
+                        _fpl_fig._render()
                         _fpl_img = _fpl_fig.export_numpy(rgb=True)
 
                     fig = plt.figure(figsize=(12, 6))
