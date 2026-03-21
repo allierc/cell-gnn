@@ -450,26 +450,24 @@ def data_generate_cell(
 
     edge_counts_per_frame = []
 
-    # Test pyvista availability once (subprocess to avoid hard X11 crash)
-    _use_pyvista = False
-    _pv_plotter = None
+    # Test fastplotlib availability once (needs GPU/Vulkan)
+    _use_fpl = False
+    _fpl_fig = None
     if visualize and dimension == 3:
         import subprocess as _sp
         _test = _sp.run(
             [sys.executable, "-c",
-             "import os; os.environ['PYVISTA_OFF_SCREEN']='true'; "
-             "import pyvista as pv; pv.OFF_SCREEN=True; "
-             "p=pv.Plotter(off_screen=True); p.close(); print('ok')"],
-            capture_output=True, text=True, timeout=10,
+             "import os; os.environ['WGPU_FORCE_OFFSCREEN']='1'; "
+             "import fastplotlib as fpl; "
+             "fig = fpl.Figure(size=(900, 900)); fig.close(); print('ok')"],
+            capture_output=True, text=True, timeout=15,
         )
-        _use_pyvista = _test.returncode == 0 and "ok" in _test.stdout
-        print(f"\033[92m3D plot: using {'pyvista' if _use_pyvista else 'matplotlib'}\033[0m")
-        if _use_pyvista:
-            import pyvista as pv
-            pv.OFF_SCREEN = True
-            _pv_plotter = pv.Plotter(off_screen=True, window_size=(900, 900))
-            _pv_plotter.set_background("white")
-            _pv_plotter.enable_eye_dome_lighting()
+        _use_fpl = _test.returncode == 0 and "ok" in _test.stdout
+        print(f"\033[92m3D plot: using {'fastplotlib' if _use_fpl else 'matplotlib'}\033[0m")
+        if _use_fpl:
+            import os as _os
+            _os.environ['WGPU_FORCE_OFFSCREEN'] = '1'
+            import fastplotlib as fpl
 
     time.sleep(0.5)
     for it in trange(sim.start_frame, n_frames + 1, ncols=100):
@@ -665,28 +663,24 @@ def data_generate_cell(
 
                     pos_np = to_numpy(x.pos)
 
-                    # --- Left panel: 3D view (pyvista → matplotlib fallback) ---
-                    _pv_img = None
-                    if _use_pyvista and _pv_plotter is not None:
-                        _pv_plotter.clear()
+                    # --- Left panel: 3D view (fastplotlib → matplotlib fallback) ---
+                    _fpl_img = None
+                    if _use_fpl:
+                        _fpl_fig = fpl.Figure(size=(900, 900))
                         for n in range(n_cell_types):
-                            pts = pos_np[np.asarray(index_cells[n])]
+                            pts = pos_np[np.asarray(index_cells[n])].astype(np.float32)
                             if len(pts) > 0:
-                                cloud = pv.PolyData(pts)
                                 color = cmap.color(n)
-                                _pv_plotter.add_points(cloud, color=color[:3], point_size=5, render_points_as_spheres=True, opacity=0.6)
-                        cube = pv.Cube(center=(0.5, 0.5, 0.5), x_length=1.0, y_length=1.0, z_length=1.0)
-                        _pv_plotter.add_mesh(cube.extract_all_edges(), color='grey', line_width=1.0, opacity=0.5)
-                        _pv_plotter.reset_camera()
-                        _pv_plotter.view_vector((0.7, 1.3, 0.5))
-                        _pv_plotter.camera.zoom(1.3)
-                        _pv_img = _pv_plotter.screenshot(return_img=True)
+                                _fpl_fig[0, 0].add_scatter(pts, sizes=3, colors=np.array(color[:3], dtype=np.float32))
+                        _fpl_fig.show()
+                        _fpl_img = _fpl_fig.export_numpy(rgb=True)
+                        _fpl_fig.close()
 
                     fig = plt.figure(figsize=(12, 6))
 
-                    if _pv_img is not None:
+                    if _fpl_img is not None:
                         ax1 = fig.add_subplot(121)
-                        ax1.imshow(_pv_img)
+                        ax1.imshow(_fpl_img)
                         ax1.axis("off")
                     else:
                         ax1 = fig.add_subplot(121, projection="3d")
@@ -812,8 +806,6 @@ def data_generate_cell(
                     num = f"{it:06}"
                     active_style.savefig(fig, f"{graphs_data_path(dataset_name)}/Fig/Fig_{run}_{num}.png")
 
-    if _pv_plotter is not None:
-        _pv_plotter.close()
 
     if save:
         # finalize zarr writers
