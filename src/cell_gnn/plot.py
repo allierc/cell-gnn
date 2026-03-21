@@ -474,8 +474,10 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
                     if len(valid) > 0:
                         g_phi_r2 = float(valid.mean())
                         g_phi_r2_std = float(valid.std())
-                        _add_r2_scatter_inset(ax, to_numpy(func_list), type_arr, true_curves,
-                                              ynorm=ynorm_np, cmap=cmap, style=style, r2=g_phi_r2)
+                        ax.text(0.02, 0.98, f'R²={g_phi_r2:.3f}±{g_phi_r2_std:.3f}',
+                                transform=ax.transAxes, verticalalignment='top',
+                                fontsize=style.font_size,
+                                color=style.foreground)
 
                 if plot_config.xlim is not None:
                     ax.set_xlim(plot_config.xlim)
@@ -536,9 +538,6 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
                                 transform=ax.transAxes, verticalalignment='top',
                                 fontsize=style.font_size,
                                 color=style.foreground)
-
-                        _add_r2_scatter_inset(ax, to_numpy(func_list), type_arr, true_curves,
-                                              ynorm=ynorm_np, cmap=cmap, style=style, r2=g_phi_r2)
 
                 if plot_config.xlim is not None:
                     ax.set_xlim(plot_config.xlim)
