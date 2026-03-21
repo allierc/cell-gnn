@@ -213,6 +213,7 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
 
     last_g_phi_r2 = None
     last_g_phi_r2_std = None
+    accuracy = 0.0
     train_start = time.time()
     time.sleep(1)
 
