@@ -471,8 +471,10 @@ def data_generate_cell(
         if _use_fpl:
             import os as _os
             _os.environ['WGPU_FORCE_OFFSCREEN'] = '1'
+            import logging
+            logging.getLogger('wgpu').setLevel(logging.ERROR)
             import fastplotlib as fpl
-            _fpl_fig = fpl.Figure(shape=(1, 2), size=(1800, 900), cameras=["3d", "2d"])
+            _fpl_fig = fpl.Figure(shape=(1, 2), size=(1800, 900), cameras=["3d", "2d"], names=[["", ""]])
             for sp in _fpl_fig:
                 sp.background_color = (1, 1, 1, 1)
             n_per_type = n_cells // n_cell_types
@@ -490,7 +492,7 @@ def data_generate_cell(
             _fpl_fig.show(axes_visible=False)
             # set 3D viewing angle
             cam = _fpl_fig[0, 0].camera
-            cam.local.position = (0.5 + 1.4, 0.5 + 2.6, 0.5 + 1.0)
+            cam.local.position = (0.5 + 0.9, 0.5 + 1.7, 0.5 + 0.7)
             cam.show_pos((0.5, 0.5, 0.5))
             import imageio.v3 as iio
 
