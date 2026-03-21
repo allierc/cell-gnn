@@ -472,6 +472,15 @@ def data_generate_cell(
             import os as _os
             _os.environ['WGPU_FORCE_OFFSCREEN'] = '1'
             import fastplotlib as fpl
+            _fpl_fig = fpl.Figure(size=(900, 900), cameras="3d")
+            _fpl_fig[0, 0].set_background_color("white")
+            _fpl_scatters = []
+            for n in range(n_cell_types):
+                color = cmap.color(n)
+                dummy = np.zeros((1, 3), dtype=np.float32)
+                s = _fpl_fig[0, 0].add_scatter(dummy, sizes=3, colors=np.array(color[:3], dtype=np.float32))
+                _fpl_scatters.append(s)
+            _fpl_fig.show()
 
     time.sleep(0.5)
     for it in trange(sim.start_frame, n_frames + 1, ncols=100):
@@ -670,13 +679,10 @@ def data_generate_cell(
                     # --- Left panel: 3D view (fastplotlib → matplotlib fallback) ---
                     _fpl_img = None
                     if _use_fpl:
-                        _fpl_fig = fpl.Figure(size=(900, 900))
                         for n in range(n_cell_types):
                             pts = pos_np[np.asarray(index_cells[n])].astype(np.float32)
-                            if len(pts) > 0:
-                                color = cmap.color(n)
-                                _fpl_fig[0, 0].add_scatter(pts, sizes=3, colors=np.array(color[:3], dtype=np.float32))
-                        _fpl_fig.show()
+                            _fpl_scatters[n].data = pts
+                        _fpl_fig[0, 0].auto_scale()
                         _fpl_fig._render()
                         _fpl_img = _fpl_fig.export_numpy(rgb=True)
 
