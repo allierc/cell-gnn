@@ -61,7 +61,7 @@ if __name__ == "__main__":
             data_generate(
                 config,
                 device=device,
-                visualize=True,
+                visualize=False,
                 run_vizualized=0,
                 style=gen_style,
                 alpha=1,
