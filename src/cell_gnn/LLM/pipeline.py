@@ -29,22 +29,6 @@ from .resume import detect_last_iteration
 from .state import BatchInfo, ExplorationState
 
 
-# ---------------------------------------------------------------------------
-def print_config_diffs(state: 'ExplorationState'):
-    """Print key architecture fields from each slot config for debugging."""
-    for slot in range(state.n_parallel):
-        path = state.config_paths[slot]
-        if not os.path.exists(path):
-            continue
-        with open(path, 'r') as f:
-            data = yaml.safe_load(f)
-        gm = data.get('graph_model', {})
-        print(f"\033[90m  slot {slot} YAML: hidden_dim={gm.get('hidden_dim')}, "
-              f"n_layers={gm.get('n_layers')}, "
-              f"embedding_dim={gm.get('embedding_dim')} "
-              f"({os.path.basename(path)})\033[0m")
-
-
 # Setup
 # ---------------------------------------------------------------------------
 
@@ -317,7 +301,7 @@ def run_batch_0(state: ExplorationState):
             f.write("\n\n")
 
     print("\033[93mAfter batch 0 — config state:\033[0m")
-    print_config_diffs(state)
+
 
 
 # ---------------------------------------------------------------------------
@@ -675,7 +659,7 @@ def run_claude_analysis(state: ExplorationState, batch: BatchInfo):
             f.write("\n\n")
 
     print(f"\033[93mAfter Claude analysis (batch {batch.batch_first}-{batch.batch_last}) — config state:\033[0m")
-    print_config_diffs(state)
+
 
 
 # ---------------------------------------------------------------------------
