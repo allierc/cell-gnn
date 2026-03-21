@@ -267,9 +267,7 @@ def make_batch_info(state: ExplorationState, batch_start: int) -> BatchInfo:
 
 def run_batch_0(state: ExplorationState):
     """BATCH 0: Claude start call to initialize N config variations."""
-    print(f"\n\033[94m{'='*60}\033[0m")
     print(f"\033[94mBATCH 0: Claude initializing {state.n_parallel} config variations\033[0m")
-    print(f"\033[94m{'='*60}\033[0m")
 
     slot_list = "\n".join(
         f"  Slot {s}: {state.config_paths[s]}"
