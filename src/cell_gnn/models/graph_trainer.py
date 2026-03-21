@@ -396,6 +396,18 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
                     last_g_phi_r2_std = g_phi_r2_std
                     with open(metrics_log_path, 'a') as f:
                         f.write(f'{epoch},{N},{g_phi_r2:.6f},{loss.item() / n_cells:.6f}\n')
+                if log_file:
+                    training_time = (time.time() - train_start) / 60.0
+                    log_file.seek(0)
+                    log_file.truncate()
+                    log_file.write(f"training_final_loss={loss.item() / n_cells:.6f}\n")
+                    log_file.write(f"training_accuracy={accuracy:.4f}\n")
+                    if last_g_phi_r2 is not None:
+                        log_file.write(f"training_g_phi_R2={last_g_phi_r2:.6f}\n")
+                    if last_g_phi_r2_std is not None:
+                        log_file.write(f"training_g_phi_R2_std={last_g_phi_r2_std:.6f}\n")
+                    log_file.write(f"training_time_min={training_time:.1f}\n")
+                    log_file.flush()
                 torch.save({'model_state_dict': model.state_dict(), 'optimizer_state_dict': optimizer.state_dict()},
                            os.path.join(log_dir, 'models', f'best_model_with_{n_runs - 1}_graphs_{epoch}_{N}.pt'))
                 if has_field:
@@ -507,6 +519,8 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
     logger.info(f"training_time_min: {training_time:.1f}")
 
     if log_file:
+        log_file.seek(0)
+        log_file.truncate()
         log_file.write(f"training_final_loss={total_loss / n_cells:.6f}\n")
         log_file.write(f"training_accuracy={accuracy:.4f}\n")
         if last_g_phi_r2 is not None:
@@ -514,6 +528,7 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
         if last_g_phi_r2_std is not None:
             log_file.write(f"training_g_phi_R2_std={last_g_phi_r2_std:.6f}\n")
         log_file.write(f"training_time_min={training_time:.1f}\n")
+        log_file.flush()
 
 
 def data_test(config=None, config_file=None, visualize=False, style='color frame', verbose=True, best_model=20,
