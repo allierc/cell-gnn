@@ -472,20 +472,27 @@ def data_generate_cell(
             import os as _os
             _os.environ['WGPU_FORCE_OFFSCREEN'] = '1'
             import fastplotlib as fpl
-            _fpl_fig = fpl.Figure(size=(900, 900), cameras="3d")
-            _fpl_fig[0, 0].background_color = (1, 1, 1, 1)
-            _fpl_scatters = []
+            _fpl_fig = fpl.Figure(shape=(1, 2), size=(1800, 900), cameras=["3d", "2d"])
+            for sp in _fpl_fig:
+                sp.background_color = (1, 1, 1, 1)
+            n_per_type = n_cells // n_cell_types
+            _fpl_scatters_3d = []
+            _fpl_scatters_2d = []
             for n in range(n_cell_types):
                 color = np.array(cmap.color(n)[:3], dtype=np.float32)
-                n_per_type = n_cells // n_cell_types
                 pts = np.full((n_per_type, 3), 0.5, dtype=np.float32)
-                s = _fpl_fig[0, 0].add_scatter(pts, sizes=3, colors=color, edge_colors=color)
-                _fpl_scatters.append(s)
+                s3d = _fpl_fig[0, 0].add_scatter(pts, sizes=3, colors=color, edge_colors=color)
+                _fpl_scatters_3d.append(s3d)
+                # 2D cross-section panel — allocate max size, will update per frame
+                pts2d = np.full((n_per_type, 3), 0.5, dtype=np.float32)
+                s2d = _fpl_fig[0, 1].add_scatter(pts2d, sizes=4, colors=color, edge_colors=color)
+                _fpl_scatters_2d.append(s2d)
             _fpl_fig.show(axes_visible=False)
-            # set 3D viewing angle (similar to pyvista view_vector(0.7, 1.3, 0.5))
+            # set 3D viewing angle
             cam = _fpl_fig[0, 0].camera
             cam.local.position = (0.5 + 1.4, 0.5 + 2.6, 0.5 + 1.0)
             cam.show_pos((0.5, 0.5, 0.5))
+            import imageio.v3 as iio
 
     time.sleep(0.5)
     for it in trange(sim.start_frame, n_frames + 1, ncols=100):
@@ -677,26 +684,37 @@ def data_generate_cell(
                     active_style.savefig(fig, f"{graphs_data_path(dataset_name)}/Fig/Rot_{run}_Fig{it}.jpg")
 
                 elif (mc.cell_model_name in ("arbitrary_ode", "dicty_spring_force_ode")) & (dimension == 3):
-                    from matplotlib.collections import LineCollection as LC
-
                     pos_np = to_numpy(x.pos)
 
-                    # --- Left panel: 3D view (fastplotlib → matplotlib fallback) ---
-                    _fpl_img = None
                     if _use_fpl:
+                        # --- Update 3D panel ---
                         for n in range(n_cell_types):
                             pts = pos_np[np.asarray(index_cells[n])].astype(np.float32)
-                            _fpl_scatters[n].data[:] = pts
+                            _fpl_scatters_3d[n].data[:] = pts
+
+                        # --- Update 2D cross-section panel ---
+                        z_center = 0.5
+                        z_thickness = 0.1
+                        for n in range(n_cell_types):
+                            idx = np.asarray(index_cells[n])
+                            z_n = pos_np[idx, 2]
+                            mask = np.abs(z_n - z_center) < z_thickness
+                            pts_slice = pos_np[idx[mask]][:, :2].astype(np.float32)
+                            # pad to buffer size with off-screen points
+                            buf = np.full((n_per_type, 3), -10.0, dtype=np.float32)
+                            if len(pts_slice) > 0:
+                                buf[:len(pts_slice), :2] = pts_slice
+                                buf[:len(pts_slice), 2] = 0
+                            _fpl_scatters_2d[n].data[:] = buf
+
                         _fpl_fig._render()
-                        _fpl_img = _fpl_fig.export_numpy(rgb=True)
+                        snapshot = _fpl_fig.renderer.snapshot()
+                        iio.imwrite(f"{graphs_data_path(dataset_name)}/Fig/Fig_{run}_{it}.png", snapshot)
 
-                    fig = plt.figure(figsize=(12, 6))
-
-                    if _fpl_img is not None:
-                        ax1 = fig.add_subplot(121)
-                        ax1.imshow(_fpl_img)
-                        ax1.axis("off")
                     else:
+                        from matplotlib.collections import LineCollection as LC
+
+                        fig = plt.figure(figsize=(12, 6))
                         ax1 = fig.add_subplot(121, projection="3d")
                         for n in range(n_cell_types):
                             ax1.scatter(
@@ -712,49 +730,49 @@ def data_generate_cell(
                         ax1.set_ylabel("Y", fontsize=8, labelpad=-12)
                         ax1.set_zlabel("Z", fontsize=8, labelpad=-12)
 
-                    # --- Right panel: 2D cross-section ---
-                    ei_fwd = None
-                    if "edge" in style:
-                        ei_np = to_numpy(edge_index)
-                        fwd_m = ei_np[0] < ei_np[1]
-                        ei_fwd = ei_np[:, fwd_m]
-                        dx = pos_np[ei_fwd[1]] - pos_np[ei_fwd[0]]
-                        no_wrap = np.sqrt((dx ** 2).sum(axis=1)) < max_radius * 1.1
-                        ei_fwd = ei_fwd[:, no_wrap]
+                        # --- Right panel: 2D cross-section ---
+                        ei_fwd = None
+                        if "edge" in style:
+                            ei_np = to_numpy(edge_index)
+                            fwd_m = ei_np[0] < ei_np[1]
+                            ei_fwd = ei_np[:, fwd_m]
+                            dx = pos_np[ei_fwd[1]] - pos_np[ei_fwd[0]]
+                            no_wrap = np.sqrt((dx ** 2).sum(axis=1)) < max_radius * 1.1
+                            ei_fwd = ei_fwd[:, no_wrap]
 
-                    ax2 = fig.add_subplot(122)
-                    z_center = 0.5
-                    z_thickness = 0.1
-                    z_vals = pos_np[:, 2]
-                    z_mask = np.abs(z_vals - z_center) < z_thickness
-                    if ei_fwd is not None:
-                        slice_set = set(np.where(z_mask)[0].tolist())
-                        sl_mask = np.array([ei_fwd[0, k] in slice_set and ei_fwd[1, k] in slice_set
-                                            for k in range(ei_fwd.shape[1])])
-                        if sl_mask.any():
-                            ei_sl = ei_fwd[:, sl_mask]
-                            seg2d = np.stack([pos_np[ei_sl[0], :2], pos_np[ei_sl[1], :2]], axis=1)
-                            ax2.add_collection(LC(seg2d, colors='#888888', linewidths=0.5, alpha=0.2))
-                    for n in range(n_cell_types):
-                        z_n = to_numpy(x.pos[index_cells[n], 2])
-                        mask = np.abs(z_n - z_center) < z_thickness
-                        ax2.scatter(
-                            to_numpy(x.pos[index_cells[n], 0])[mask],
-                            to_numpy(x.pos[index_cells[n], 1])[mask],
-                            s=4,
-                            color=cmap.color(n),
-                            alpha=0.7,
-                            edgecolors="none",
-                        )
-                    ax2.set_xlim([0, 1])
-                    ax2.set_ylim([0, 1])
-                    ax2.set_xticks([])
-                    ax2.set_yticks([])
-                    ax2.set_aspect("equal")
-                    for spine in ax2.spines.values():
-                        spine.set_visible(False)
-                    plt.tight_layout()
-                    active_style.savefig(fig, f"{graphs_data_path(dataset_name)}/Fig/Fig_{run}_{it}.png")
+                        ax2 = fig.add_subplot(122)
+                        z_center = 0.5
+                        z_thickness = 0.1
+                        z_vals = pos_np[:, 2]
+                        z_mask = np.abs(z_vals - z_center) < z_thickness
+                        if ei_fwd is not None:
+                            slice_set = set(np.where(z_mask)[0].tolist())
+                            sl_mask = np.array([ei_fwd[0, k] in slice_set and ei_fwd[1, k] in slice_set
+                                                for k in range(ei_fwd.shape[1])])
+                            if sl_mask.any():
+                                ei_sl = ei_fwd[:, sl_mask]
+                                seg2d = np.stack([pos_np[ei_sl[0], :2], pos_np[ei_sl[1], :2]], axis=1)
+                                ax2.add_collection(LC(seg2d, colors='#888888', linewidths=0.5, alpha=0.2))
+                        for n in range(n_cell_types):
+                            z_n = to_numpy(x.pos[index_cells[n], 2])
+                            mask = np.abs(z_n - z_center) < z_thickness
+                            ax2.scatter(
+                                to_numpy(x.pos[index_cells[n], 0])[mask],
+                                to_numpy(x.pos[index_cells[n], 1])[mask],
+                                s=4,
+                                color=cmap.color(n),
+                                alpha=0.7,
+                                edgecolors="none",
+                            )
+                        ax2.set_xlim([0, 1])
+                        ax2.set_ylim([0, 1])
+                        ax2.set_xticks([])
+                        ax2.set_yticks([])
+                        ax2.set_aspect("equal")
+                        for spine in ax2.spines.values():
+                            spine.set_visible(False)
+                        plt.tight_layout()
+                        active_style.savefig(fig, f"{graphs_data_path(dataset_name)}/Fig/Fig_{run}_{it}.png")
 
                 else:
                     from matplotlib.collections import LineCollection as LC2
