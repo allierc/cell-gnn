@@ -459,7 +459,10 @@ def data_generate_cell(
             [sys.executable, "-c",
              "import os; os.environ['WGPU_FORCE_OFFSCREEN']='1'; "
              "import fastplotlib as fpl; "
-             "fig = fpl.Figure(size=(900, 900)); fig.close(); print('ok')"],
+             "import numpy as np; "
+             "fig = fpl.Figure(size=(900, 900)); "
+             "fig[0, 0].add_scatter(np.zeros((3, 3), dtype=np.float32), sizes=1); "
+             "fig.show(); fig.close(); print('ok')"],
             capture_output=True, text=True, timeout=15,
         )
         _use_fpl = _test.returncode == 0 and "ok" in _test.stdout
