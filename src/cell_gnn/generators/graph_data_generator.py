@@ -479,9 +479,13 @@ def data_generate_cell(
                 color = np.array(cmap.color(n)[:3], dtype=np.float32)
                 n_per_type = n_cells // n_cell_types
                 pts = np.full((n_per_type, 3), 0.5, dtype=np.float32)
-                s = _fpl_fig[0, 0].add_scatter(pts, sizes=3, colors=color)
+                s = _fpl_fig[0, 0].add_scatter(pts, sizes=3, colors=color, edge_colors=color)
                 _fpl_scatters.append(s)
             _fpl_fig.show(axes_visible=False)
+            # set 3D viewing angle (similar to pyvista view_vector(0.7, 1.3, 0.5))
+            cam = _fpl_fig[0, 0].camera
+            cam.local.position = (0.5 + 1.4, 0.5 + 2.6, 0.5 + 1.0)
+            cam.show_pos((0.5, 0.5, 0.5))
 
     time.sleep(0.5)
     for it in trange(sim.start_frame, n_frames + 1, ncols=100):
