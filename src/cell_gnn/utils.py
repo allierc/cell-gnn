@@ -373,6 +373,9 @@ def create_log_dir(config=[], erase=True):
         os.makedirs(os.path.join(log_dir, 'tmp_training/ghost'), exist_ok=True)
 
     if erase:
+        files = glob.glob(f"{log_dir}/models/*")
+        for f in files:
+            os.remove(f)
         files = glob.glob(f"{log_dir}/results/*")
         for f in files:
             if ('all' not in f) & ('field' not in f):

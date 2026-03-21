@@ -123,7 +123,7 @@ class SimulationConfig(BaseModel):
     dpos_init: float = 0
     len_directed_edges: int = 1
 
-    diffusion_coefficients: list[list[float]] = None
+    diffusion_coefficients: Optional[list[list[float]]] = None
 
     angular_sigma: float = 0
     angular_bernoulli: list[float] = [-1]
@@ -157,9 +157,9 @@ class SimulationConfig(BaseModel):
     excitation_value_map: Optional[str] = None
     excitation: str = "none"
 
-    cell_params: list[list[float]] = None
-    params_mesh: list[list[float]] = None
-    func_params: list[tuple] = None
+    cell_params: Optional[list[list[float]]] = None
+    params_mesh: Optional[list[list[float]]] = None
+    func_params: Optional[list[tuple]] = None
 
     phi: str = "tanh"
     tau: float = 1.0
