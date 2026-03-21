@@ -648,6 +648,8 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
             for n in range(model.a.shape[0]):
                 model.a[n] = model_a_
     # create model and load weights
+    print(f'  test config: hidden_dim={config.graph_model.hidden_dim}, n_layers={config.graph_model.n_layers}, '
+          f'embedding_dim={config.graph_model.embedding_dim}')
     model, bc_pos, bc_dpos = choose_training_model(config, device)
     model.ynorm = ynorm
     model.vnorm = vnorm

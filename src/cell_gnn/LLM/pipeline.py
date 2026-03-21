@@ -6,6 +6,7 @@ Each function corresponds to a phase in the main batch loop of GNN_LLM.py.
 import os
 import re
 import shutil
+import subprocess
 import sys
 
 import yaml
@@ -29,6 +30,21 @@ from .state import BatchInfo, ExplorationState
 
 
 # ---------------------------------------------------------------------------
+def print_config_diffs(state: 'ExplorationState'):
+    """Print key architecture fields from each slot config for debugging."""
+    for slot in range(state.n_parallel):
+        path = state.config_paths[slot]
+        if not os.path.exists(path):
+            continue
+        with open(path, 'r') as f:
+            data = yaml.safe_load(f)
+        gm = data.get('graph_model', {})
+        print(f"\033[90m  slot {slot} YAML: hidden_dim={gm.get('hidden_dim')}, "
+              f"n_layers={gm.get('n_layers')}, "
+              f"embedding_dim={gm.get('embedding_dim')} "
+              f"({os.path.basename(path)})\033[0m")
+
+
 # Setup
 # ---------------------------------------------------------------------------
 
@@ -300,6 +316,9 @@ def run_batch_0(state: ExplorationState):
             f.write(output_text.strip())
             f.write("\n\n")
 
+    print("\033[93mAfter batch 0 — config state:\033[0m")
+    print_config_diffs(state)
+
 
 # ---------------------------------------------------------------------------
 # Phase 1: Load configs + force seeds
@@ -333,6 +352,9 @@ def load_configs_and_seeds(state: ExplorationState, batch: BatchInfo):
             yaml.dump(yaml_data, f, default_flow_style=False, sort_keys=False)
 
         batch.configs[slot] = config
+        print(f"\033[90m  slot {slot}: hidden_dim={config.graph_model.hidden_dim}, "
+              f"n_layers={config.graph_model.n_layers}, "
+              f"config_file={state.config_paths[slot]}\033[0m")
 
         if state.device is None:
             state.device = set_device(config.training.device)
@@ -420,7 +442,8 @@ def run_local_test_plot(state: ExplorationState, batch: BatchInfo):
             print(f"\033[90m  slot {slot} (iter {iteration}): skipping (training failed)\033[0m")
             continue
         config = batch.configs[slot]
-        print(f"\033[90m  slot {slot} (iter {iteration}): testing locally...\033[0m")
+        print(f"\033[90m  slot {slot} (iter {iteration}): testing locally "
+              f"(hidden_dim={config.graph_model.hidden_dim}, n_layers={config.graph_model.n_layers})...\033[0m")
         log_file = open(state.analysis_log_paths[slot], 'a')
         data_test(
             config=config,
@@ -650,6 +673,9 @@ def run_claude_analysis(state: ExplorationState, batch: BatchInfo):
             f.write(f"{'='*60}\n")
             f.write(output_text.strip())
             f.write("\n\n")
+
+    print(f"\033[93mAfter Claude analysis (batch {batch.batch_first}-{batch.batch_last}) — config state:\033[0m")
+    print_config_diffs(state)
 
 
 # ---------------------------------------------------------------------------
