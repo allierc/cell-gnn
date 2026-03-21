@@ -474,9 +474,13 @@ def data_generate_cell(
             import fastplotlib as fpl
             _fpl_fig = fpl.Figure(size=(900, 900), cameras="3d")
             _fpl_fig[0, 0].background_color = (1, 1, 1, 1)
-            _fpl_colors = [np.array(cmap.color(n)[:3], dtype=np.float32) for n in range(n_cell_types)]
-            # add dummy point so show() can compute bbox
-            _fpl_fig[0, 0].add_scatter(np.array([[0.5, 0.5, 0.5]], dtype=np.float32), sizes=0)
+            _fpl_scatters = []
+            for n in range(n_cell_types):
+                color = np.array(cmap.color(n)[:3], dtype=np.float32)
+                n_per_type = n_cells // n_cell_types
+                pts = np.full((n_per_type, 3), 0.5, dtype=np.float32)
+                s = _fpl_fig[0, 0].add_scatter(pts, sizes=3, colors=color)
+                _fpl_scatters.append(s)
             _fpl_fig.show(axes_visible=False)
 
     time.sleep(0.5)
@@ -676,12 +680,9 @@ def data_generate_cell(
                     # --- Left panel: 3D view (fastplotlib → matplotlib fallback) ---
                     _fpl_img = None
                     if _use_fpl:
-                        _fpl_fig[0, 0].clear()
                         for n in range(n_cell_types):
                             pts = pos_np[np.asarray(index_cells[n])].astype(np.float32)
-                            if len(pts) > 0:
-                                _fpl_fig[0, 0].add_scatter(pts, sizes=3, colors=_fpl_colors[n])
-                        _fpl_fig[0, 0].auto_scale()
+                            _fpl_scatters[n].data[:] = pts
                         _fpl_fig._render()
                         _fpl_img = _fpl_fig.export_numpy(rgb=True)
 
