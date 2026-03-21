@@ -94,7 +94,5 @@ if __name__ == "__main__":
         finalize_batch(state, batch)
 
 
-# python GNN_LLM.py -o train_test_Claude dicty iterations=48
-# python GNN_LLM.py -o train_test_Claude dicty iterations=48 --resume
-# python GNN_LLM.py -o train_test_Claude_cluster dicty iterations=48 --cluster
-# python GNN_LLM.py -o generate_train_test_Claude dicty_spring_force iterations=48
+# python GNN_LLM.py -o generate_train_test_Claude arbitrary iterations=256 --cluster
+# python GNN_LLM.py -o generate_train_test_Claude dicty_spring_force iterations=256 --cluster
