@@ -462,7 +462,8 @@ def data_generate_cell(
              "import numpy as np; "
              "fig = fpl.Figure(size=(900, 900)); "
              "fig[0, 0].add_scatter(np.zeros((3, 3), dtype=np.float32), sizes=1); "
-             "fig.show(); fig.close(); print('ok')"],
+             "fig.show(); img = fig.export_numpy(rgb=True); "
+             "print('ok', img.shape)"],
             capture_output=True, text=True, timeout=15,
         )
         _use_fpl = _test.returncode == 0 and "ok" in _test.stdout
@@ -677,7 +678,6 @@ def data_generate_cell(
                                 _fpl_fig[0, 0].add_scatter(pts, sizes=3, colors=np.array(color[:3], dtype=np.float32))
                         _fpl_fig.show()
                         _fpl_img = _fpl_fig.export_numpy(rgb=True)
-                        _fpl_fig.close()
 
                     fig = plt.figure(figsize=(12, 6))
 
