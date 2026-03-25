@@ -55,7 +55,7 @@ def choose_model(config=[], W=[], device=[]):
                 p = torch.tensor(p, device=device)
             model = sim_cls(aggr_type=aggr_type, p=p, clamp=config.training.clamp,
                             pred_limit=config.training.pred_limit, bc_dpos=bc_dpos, dimension=dimension)
-        case 'dicty_spring_force_ode':
+        case 'particle_spring_force_ode' | 'particle_spring_force_ode_static_field':
             noise_model_level = config.simulation.noise_model_level if hasattr(config.simulation, 'noise_model_level') else 0
             model = sim_cls(aggr_type=aggr_type, p=p, bc_dpos=bc_dpos, dimension=dimension,
                             noise_model_level=noise_model_level)

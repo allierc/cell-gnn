@@ -1,25 +1,25 @@
 description: "3D overdamped cells with spring repulsion + adhesion"
-dataset: "dicty_spring_force_rk4"
+dataset: "dicty_spring_force_rk4_small_rc"
 
 simulation:
   dimension: 3
-  n_cells: 1000
+  n_cells: 2000
   n_cell_types: 1
   n_frames: 8000
   delta_t: 0.002
-  max_radius: 0.15
+  max_radius: 0.075
   min_radius: 0
   sigma: 0.005
   boundary: "periodic"
   dpos_init: 0
-  cell_params: [[50.0, 0.1, 50.0, 0.14, 0.001, 0.033]]
+  cell_params: [[50.0, 0.05, 50.0, 0.07, 0.001, 0.033]]
   #              k_rep  r0   kadh  r_on  delta  mu_f
   func_params: [["spring", 0, 0]]
   noise_model_level: 0.0
   integration: "Runge-Kutta"
 
 graph_model:
-  cell_model_name: "dicty_spring_force_ode"
+  cell_model_name: "particle_spring_force_ode"
   prediction: "first_derivative"
   input_size: 6
   output_size: 3

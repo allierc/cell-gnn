@@ -8,7 +8,7 @@ from cell_gnn.graph_utils import remove_self_loops, scatter_aggregate
 from cell_gnn.models.registry import register_model
 
 
-@register_model("arbitrary_ode", "boids_ode", "gravity_ode", "dicty_spring_force_ode")
+@register_model("arbitrary_ode", "boids_ode", "gravity_ode", "particle_spring_force_ode", "particle_spring_force_ode_static_field")
 class CellGNN(nn.Module):
     """Interaction Network for cell dynamics — learns pairwise interaction from relative positions/velocities.
 
@@ -98,7 +98,7 @@ class CellGNN(nn.Module):
 
         # Auto-compute input_size from model type to stay consistent with embedding_dim
         match self.model:
-            case 'arbitrary_ode' | 'dicty_spring_force_ode':
+            case 'arbitrary_ode' | 'particle_spring_force_ode' | 'particle_spring_force_ode_static_field':
                 self.input_size = self.dimension + 1 + self.embedding_dim
             case 'boids_ode' | 'gravity_ode':
                 self.input_size = 3 * self.dimension + 1 + self.embedding_dim
@@ -237,7 +237,7 @@ class CellGNN(nn.Module):
             delta_pos[:, :d] = delta_pos[:, :d] @ self.rotation_matrix
 
         match self.model:
-            case 'arbitrary_ode' | 'dicty_spring_force_ode':
+            case 'arbitrary_ode' | 'particle_spring_force_ode' | 'particle_spring_force_ode_static_field':
                 in_features = torch.cat((delta_pos, r[:, None], embedding_i), dim=-1)
             case 'boids_ode':
                 in_features = torch.cat((delta_pos, r[:, None], d_pos_i, d_pos_j, embedding_i), dim=-1)
@@ -269,7 +269,7 @@ class CellGNN(nn.Module):
         if self.model == 'gravity_ode':
             psi = p1 / r ** 2
             return psi[:, None]
-        if self.model == 'dicty_spring_force_ode':
+        if self.model in ('particle_spring_force_ode', 'particle_spring_force_ode_static_field'):
             k_rep, r0, kadh, r_on, delta, mu_f = p1[0], p1[1], p1[2], p1[3], p1[4], p1[5]
             delta_safe = max(delta, 1e-8)
             F_rep = k_rep * torch.relu(r0 - r)

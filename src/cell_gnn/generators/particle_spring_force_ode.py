@@ -7,8 +7,8 @@ from cell_gnn.graph_utils import remove_self_loops, scatter_aggregate
 from cell_gnn.models.registry import register_simulator
 
 
-@register_simulator("dicty_spring_force_ode")
-class DictySpringForceODE(nn.Module):
+@register_simulator("particle_spring_force_ode")
+class ParticleSpringForceODE(nn.Module):
     """Overdamped cell dynamics with spring-based repulsion and sigmoid-gated adhesion.
 
     Each cell type has parameters p = (k_rep, r0, kadh, r_on, delta, mu_f):

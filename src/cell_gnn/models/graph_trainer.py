@@ -1034,7 +1034,7 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
         pred_vs_clean_list = []
         print(f'  force decomposition found: force_clean + force_noise')
     else:
-        print(f'  no force decomposition found (generate data with dicty_spring_force_ode to get it)')
+        print(f'  no force decomposition found (generate data with particle_spring_force_ode or particle_spring_force_ode_static_field to get it)')
 
     with torch.no_grad():
         for it in trange(n_test_frames, ncols=100, desc='one-step residual'):

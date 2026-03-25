@@ -19,7 +19,7 @@ simulation:
   integration: "Runge-Kutta"
 
 graph_model:
-  cell_model_name: "dicty_spring_force_ode"
+  cell_model_name: "particle_spring_force_ode"
   prediction: "first_derivative"
   input_size: 6
   output_size: 3
