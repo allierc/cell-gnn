@@ -210,8 +210,14 @@ class ParticleSpringForceODEStaticField(nn.Module):
         """
         pos_d = pos.to(self.c_grid.dtype)
 
+        # ensure field grids are on the same device as pos
+        c_grid = self.c_grid.to(pos.device)
+        gc_x = self.gc_x.to(pos.device)
+        gc_y = self.gc_y.to(pos.device)
+        gc_z = self.gc_z.to(pos.device)
+
         c_val, gx_val, gy_val, gz_val = trilinear_sample_periodic(
-            [self.c_grid, self.gc_x, self.gc_y, self.gc_z],
+            [c_grid, gc_x, gc_y, gc_z],
             pos_d, self.field_L, self.field_Nx,
         )
 
@@ -247,10 +253,13 @@ class ParticleSpringForceODEStaticField(nn.Module):
         messages = self.pair_message(pos_i, pos_j, parameters_i)
         d_pos_pair = scatter_aggregate(messages, dst, state.n_cells, self.aggr_type)
 
-        # --- chemotactic drift ---
-        chi = parameters[:, 6]           # (N,)
-        beta_sig = parameters[:, 7]      # (N,)
-        d_pos_chem = self.chemotaxis(grad_c, chi, beta_sig)
+        # --- chemotactic drift (requires chi, beta_sig at indices 6, 7) ---
+        if parameters.shape[1] > 7:
+            chi = parameters[:, 6]           # (N,)
+            beta_sig = parameters[:, 7]      # (N,)
+            d_pos_chem = self.chemotaxis(grad_c, chi, beta_sig)
+        else:
+            d_pos_chem = torch.zeros_like(d_pos_pair)
 
         # --- combine ---
         d_pos = d_pos_pair + d_pos_chem
