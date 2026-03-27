@@ -42,6 +42,7 @@ def _discover_models():
     _models_discovered = True
     import cell_gnn.models.cell_gnn  # noqa: F401
     import cell_gnn.models.cell_field_gnn  # noqa: F401
+    import cell_gnn.models.cell_gnn_mlp_field  # noqa: F401
 
 
 def register_simulator(*names: str):
