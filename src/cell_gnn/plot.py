@@ -51,7 +51,7 @@ def build_edge_features(rr, embedding, model_name, max_radius, dimension=2):
         r = rr_exp.unsqueeze(-1) / max_radius  # (N, n_pts, 1)
 
         match model_name:
-            case 'arbitrary_ode' | 'arbitrary_field_ode' | 'particle_spring_force_ode' | 'particle_spring_force_ode_static_field' | 'particle_spring_force_ode_static_field_mlp':
+            case 'arbitrary_ode' | 'arbitrary_field_ode' | 'particle_spring_force_ode' | 'particle_spring_force_ode_static_field' | 'particle_spring_force_ode_static_field_mlp' | 'particle_spring_force_ode_static_field_siren':
                 return torch.cat((delta_pos, r, emb_exp), dim=-1)
             case 'boids_ode' | 'boids_field_ode':
                 r_abs = torch.abs(rr_exp).unsqueeze(-1) / max_radius
@@ -70,7 +70,7 @@ def build_edge_features(rr, embedding, model_name, max_radius, dimension=2):
         r = rr[:, None] / max_radius
 
         match model_name:
-            case 'arbitrary_ode' | 'arbitrary_field_ode' | 'particle_spring_force_ode' | 'particle_spring_force_ode_static_field' | 'particle_spring_force_ode_static_field_mlp':
+            case 'arbitrary_ode' | 'arbitrary_field_ode' | 'particle_spring_force_ode' | 'particle_spring_force_ode_static_field' | 'particle_spring_force_ode_static_field_mlp' | 'particle_spring_force_ode_static_field_siren':
                 return torch.cat((delta_pos, r, embedding), dim=1)
             case 'boids_ode' | 'boids_field_ode':
                 r_abs = torch.abs(rr[:, None]) / max_radius
@@ -431,7 +431,7 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
     else:
         match model_config.cell_model_name:
 
-            case 'arbitrary_ode' | 'arbitrary_field_ode' | 'gravity_ode' | 'particle_spring_force_ode' | 'particle_spring_force_ode_static_field' | 'particle_spring_force_ode_static_field_mlp':
+            case 'arbitrary_ode' | 'arbitrary_field_ode' | 'gravity_ode' | 'particle_spring_force_ode' | 'particle_spring_force_ode_static_field' | 'particle_spring_force_ode_static_field_mlp' | 'particle_spring_force_ode_static_field_siren':
                 fig, ax = style.montage_figure()
                 if axis:
                     ax.xaxis.set_major_locator(plt.MaxNLocator(3))
