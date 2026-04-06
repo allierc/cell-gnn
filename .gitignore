@@ -16,5 +16,6 @@ log/
 *.pt
 *.npy
 *.npz
+*.log
 *.sh
 .ipynb_checkpoints/
