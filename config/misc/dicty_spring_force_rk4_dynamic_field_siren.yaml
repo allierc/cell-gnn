@@ -1,6 +1,5 @@
-description: "3D overdamped cells with spring repulsion + adhesion"
-dataset: "dicty_spring_force_rk4_static_field_smallrad"
-
+description: "3D overdamped cells with spring forces + moving Gaussian field (GNN + SIREN)"
+dataset: "dicty_spring_force_rk4_dynamic_field_siren"
 
 simulation:
   dimension: 3
@@ -13,14 +12,20 @@ simulation:
   sigma: 0.005
   boundary: "periodic"
   dpos_init: 0
-  cell_params: [[50.0, 0.05, 50.0, 0.07, 0.001, 0.033, 0.2, 8.0]]
-  #              k_rep  r0   kadh  r_on  delta  mu_f chi beta_sig
+  cell_params: [[50.0, 0.05, 50.0, 0.07, 0.001, 0.033]]
+  #              k_rep  r0   kadh  r_on  delta  mu_f
   func_params: [["spring", 0, 0]]
   noise_model_level: 0.0
   integration: "Runge-Kutta"
+  field_params:
+    center_0: [0.2, 0.5, 0.5]
+    velocity: [0.15, 0.0, 0.0]
+    amplitude: 1.0
+    sigma: 0.15
+    mu_chem: 0.5
 
 graph_model:
-  cell_model_name: "particle_spring_force_ode_static_field"
+  cell_model_name: "particle_spring_force_dynamic_field_siren"
   prediction: "first_derivative"
   input_size: 6
   output_size: 3
@@ -29,13 +34,15 @@ graph_model:
   aggr_type: "add"
   embedding_dim: 2
   update_type: "none"
+  n_layers_field: 3
+  hidden_dim_field: 128
+  omega_field: 30.0
 
 plotting:
   colormap: "tab10"
   arrow_length: 2
   xlim: [0, 0.12]
   invert_mlp1_sign: true
-
 
 inr:
   inr_field_name: "velocity"

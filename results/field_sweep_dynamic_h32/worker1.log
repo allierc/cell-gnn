@@ -1,0 +1,643 @@
+Sender: LSF System <lsfadmin@h11u28>
+Subject: Job 149183374: <field_sweep_w1> in cluster <Janelia> Done
+
+Job <field_sweep_w1> was submitted from host <e02u30> by user <liuj4> in cluster <Janelia> at Thu Apr  2 18:35:26 2026
+Job was executed on host(s) <2*h11u28>, in queue <gpu_a100>, as user <liuj4> in cluster <Janelia> at Thu Apr  2 18:35:26 2026
+</groups/jingyiliu/home/liuj4> was used as the home directory.
+</groups/jingyiliu/home/liuj4/cell-gnn> was used as the working directory.
+Started at Thu Apr  2 18:35:26 2026
+Terminated at Thu Apr  2 23:19:53 2026
+Results reported at Thu Apr  2 23:19:53 2026
+
+Your job looked like:
+
+------------------------------------------------------------
+# LSBATCH: User input
+python -m cell_gnn.experiments.field_learning_sweep_dynamic             --device cuda:0 --n_workers 2 --worker_id 1
+------------------------------------------------------------
+
+Successfully completed.
+
+Resource usage summary:
+
+    CPU time :                                   16983.77 sec.
+    Max Memory :                                 1170 MB
+    Average Memory :                             951.64 MB
+    Total Requested Memory :                     81920.00 MB
+    Delta Memory :                               80750.00 MB
+    Max Swap :                                   -
+    Max Processes :                              3
+    Max Threads :                                8
+    Run time :                                   17065 sec.
+    Turnaround time :                            17067 sec.
+
+The output (if any) follows:
+
+Total experiments: 400
+Worker 1/2: running 200 experiments
+Device: cuda:0
+Output: results/field_sweep_dynamic_h32
+
+[1/200 | global 2/400] relu | moving_blob | target=scalar | lr=0.0001 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.2423  loss=1.33e-03  params=3,361  time=50.3s  NOT CONVERGED
+
+[2/200 | global 4/400] relu | moving_blob | target=scalar | lr=0.0005 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.1263  loss=2.93e-04  params=3,361  time=50.0s  NOT CONVERGED
+
+[3/200 | global 6/400] relu | moving_blob | target=scalar | lr=0.001 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.1485  loss=3.80e-04  params=3,361  time=50.0s  NOT CONVERGED
+
+[4/200 | global 8/400] relu | moving_blob | target=scalar | lr=0.003 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.1100  loss=2.26e-04  params=3,361  time=50.0s  NOT CONVERGED
+
+[5/200 | global 10/400] tanh | moving_blob | target=scalar | lr=0.0001 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.7912  loss=1.13e-02  params=3,361  time=49.9s  NOT CONVERGED
+
+[6/200 | global 12/400] tanh | moving_blob | target=scalar | lr=0.0005 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.7063  loss=9.73e-03  params=3,361  time=50.0s  NOT CONVERGED
+
+[7/200 | global 14/400] tanh | moving_blob | target=scalar | lr=0.001 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.5448  loss=5.51e-03  params=3,361  time=49.9s  NOT CONVERGED
+
+[8/200 | global 16/400] tanh | moving_blob | target=scalar | lr=0.003 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.2544  loss=1.10e-03  params=3,361  time=49.9s  NOT CONVERGED
+
+[9/200 | global 18/400] gelu | moving_blob | target=scalar | lr=0.0001 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.7876  loss=1.19e-02  params=3,361  time=49.9s  NOT CONVERGED
+
+[10/200 | global 20/400] gelu | moving_blob | target=scalar | lr=0.0005 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.6254  loss=6.29e-03  params=3,361  time=49.9s  NOT CONVERGED
+
+[11/200 | global 22/400] gelu | moving_blob | target=scalar | lr=0.001 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.4148  loss=3.31e-03  params=3,361  time=49.9s  NOT CONVERGED
+
+[12/200 | global 24/400] gelu | moving_blob | target=scalar | lr=0.003 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.1992  loss=9.23e-04  params=3,361  time=49.9s  NOT CONVERGED
+
+[13/200 | global 26/400] siren | moving_blob | target=gradient | lr=0.0001 | layers=5 | hidden=32 | frames=100 | omega=60.0
+  -> rel_error=0.1328  loss=4.85e-04  params=3,427  time=56.8s  NOT CONVERGED
+
+[14/200 | global 28/400] siren | moving_blob | target=scalar | lr=0.0001 | layers=5 | hidden=32 | frames=100 | omega=60.0
+  -> rel_error=0.0629  loss=8.56e-05  params=3,361  time=54.1s  NOT CONVERGED
+
+[15/200 | global 30/400] siren | moving_blob | target=gradient | lr=0.0005 | layers=5 | hidden=32 | frames=100 | omega=60.0
+  -> rel_error=0.0516  loss=8.05e-05  params=3,427  time=56.7s  NOT CONVERGED
+
+[16/200 | global 32/400] siren | moving_blob | target=scalar | lr=0.0005 | layers=5 | hidden=32 | frames=100 | omega=60.0
+  -> rel_error=0.0326  loss=1.95e-05  params=3,361  time=54.0s  CONVERGED
+
+[17/200 | global 34/400] siren | moving_blob | target=gradient | lr=0.001 | layers=5 | hidden=32 | frames=100 | omega=60.0
+  -> rel_error=0.0447  loss=4.73e-05  params=3,427  time=56.8s  CONVERGED
+
+[18/200 | global 36/400] siren | moving_blob | target=scalar | lr=0.001 | layers=5 | hidden=32 | frames=100 | omega=60.0
+  -> rel_error=0.0451  loss=3.94e-05  params=3,361  time=54.0s  CONVERGED
+
+[19/200 | global 38/400] siren | moving_blob | target=gradient | lr=0.003 | layers=5 | hidden=32 | frames=100 | omega=60.0
+  -> rel_error=1.0000  loss=2.58e-02  params=3,427  time=56.8s  NOT CONVERGED
+
+[20/200 | global 40/400] siren | moving_blob | target=scalar | lr=0.003 | layers=5 | hidden=32 | frames=100 | omega=60.0
+  -> rel_error=0.9222  loss=1.71e-02  params=3,361  time=54.1s  NOT CONVERGED
+
+[21/200 | global 42/400] relu | moving_pulsating | target=scalar | lr=0.0001 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.8357  loss=1.54e-03  params=3,361  time=50.0s  NOT CONVERGED
+
+[22/200 | global 44/400] relu | moving_pulsating | target=scalar | lr=0.0005 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.3553  loss=4.66e-04  params=3,361  time=50.0s  NOT CONVERGED
+
+[23/200 | global 46/400] relu | moving_pulsating | target=scalar | lr=0.001 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.2971  loss=1.35e-04  params=3,361  time=50.0s  NOT CONVERGED
+
+[24/200 | global 48/400] relu | moving_pulsating | target=scalar | lr=0.003 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.1310  loss=5.65e-05  params=3,361  time=50.0s  NOT CONVERGED
+
+[25/200 | global 50/400] tanh | moving_pulsating | target=scalar | lr=0.0001 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.9598  loss=3.37e-03  params=3,361  time=49.9s  NOT CONVERGED
+
+[26/200 | global 52/400] tanh | moving_pulsating | target=scalar | lr=0.0005 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.9164  loss=4.74e-03  params=3,361  time=50.0s  NOT CONVERGED
+
+[27/200 | global 54/400] tanh | moving_pulsating | target=scalar | lr=0.001 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.9014  loss=6.25e-03  params=3,361  time=49.9s  NOT CONVERGED
+
+[28/200 | global 56/400] tanh | moving_pulsating | target=scalar | lr=0.003 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.7823  loss=3.34e-03  params=3,361  time=49.9s  NOT CONVERGED
+
+[29/200 | global 58/400] gelu | moving_pulsating | target=scalar | lr=0.0001 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.9548  loss=2.79e-03  params=3,361  time=49.9s  NOT CONVERGED
+
+[30/200 | global 60/400] gelu | moving_pulsating | target=scalar | lr=0.0005 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.8983  loss=3.42e-03  params=3,361  time=49.9s  NOT CONVERGED
+
+[31/200 | global 62/400] gelu | moving_pulsating | target=scalar | lr=0.001 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.7826  loss=2.95e-03  params=3,361  time=49.9s  NOT CONVERGED
+
+[32/200 | global 64/400] gelu | moving_pulsating | target=scalar | lr=0.003 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.2962  loss=1.31e-04  params=3,361  time=49.9s  NOT CONVERGED
+
+[33/200 | global 66/400] siren | moving_pulsating | target=gradient | lr=0.0001 | layers=5 | hidden=32 | frames=100 | omega=60.0
+  -> rel_error=0.3272  loss=3.70e-05  params=3,427  time=56.8s  NOT CONVERGED
+
+[34/200 | global 68/400] siren | moving_pulsating | target=scalar | lr=0.0001 | layers=5 | hidden=32 | frames=100 | omega=60.0
+  -> rel_error=0.1157  loss=4.06e-05  params=3,361  time=54.0s  NOT CONVERGED
+
+[35/200 | global 70/400] siren | moving_pulsating | target=gradient | lr=0.0005 | layers=5 | hidden=32 | frames=100 | omega=60.0
+  -> rel_error=0.2157  loss=9.99e-06  params=3,427  time=56.8s  NOT CONVERGED
+
+[36/200 | global 72/400] siren | moving_pulsating | target=scalar | lr=0.0005 | layers=5 | hidden=32 | frames=100 | omega=60.0
+  -> rel_error=0.0588  loss=1.57e-05  params=3,361  time=54.0s  NOT CONVERGED
+
+[37/200 | global 74/400] siren | moving_pulsating | target=gradient | lr=0.001 | layers=5 | hidden=32 | frames=100 | omega=60.0
+  -> rel_error=0.8549  loss=2.36e-04  params=3,427  time=56.7s  NOT CONVERGED
+
+[38/200 | global 76/400] siren | moving_pulsating | target=scalar | lr=0.001 | layers=5 | hidden=32 | frames=100 | omega=60.0
+  -> rel_error=0.1020  loss=3.48e-05  params=3,361  time=54.0s  NOT CONVERGED
+
+[39/200 | global 78/400] siren | moving_pulsating | target=gradient | lr=0.003 | layers=5 | hidden=32 | frames=100 | omega=60.0
+  -> rel_error=0.5144  loss=1.22e-04  params=3,427  time=56.8s  NOT CONVERGED
+
+[40/200 | global 80/400] siren | moving_pulsating | target=scalar | lr=0.003 | layers=5 | hidden=32 | frames=100 | omega=60.0
+  -> rel_error=0.9674  loss=6.28e-03  params=3,361  time=54.0s  NOT CONVERGED
+
+[41/200 | global 82/400] relu | moving_small | target=scalar | lr=0.0001 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.9909  loss=1.29e-04  params=3,361  time=50.0s  NOT CONVERGED
+
+[42/200 | global 84/400] relu | moving_small | target=scalar | lr=0.0005 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.7943  loss=9.08e-05  params=3,361  time=50.0s  NOT CONVERGED
+
+[43/200 | global 86/400] relu | moving_small | target=scalar | lr=0.001 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.9017  loss=8.48e-05  params=3,361  time=50.0s  NOT CONVERGED
+
+[44/200 | global 88/400] relu | moving_small | target=scalar | lr=0.003 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.7130  loss=6.32e-05  params=3,361  time=50.0s  NOT CONVERGED
+
+[45/200 | global 90/400] tanh | moving_small | target=scalar | lr=0.0001 | layers=5 | hidden=32 | frames=100
+  -> rel_error=1.0002  loss=1.59e-04  params=3,361  time=49.9s  NOT CONVERGED
+
+[46/200 | global 92/400] tanh | moving_small | target=scalar | lr=0.0005 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.9986  loss=1.34e-04  params=3,361  time=49.9s  NOT CONVERGED
+
+[47/200 | global 94/400] tanh | moving_small | target=scalar | lr=0.001 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.9978  loss=1.64e-04  params=3,361  time=50.0s  NOT CONVERGED
+
+[48/200 | global 96/400] tanh | moving_small | target=scalar | lr=0.003 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.9984  loss=1.12e-04  params=3,361  time=49.9s  NOT CONVERGED
+
+[49/200 | global 98/400] gelu | moving_small | target=scalar | lr=0.0001 | layers=5 | hidden=32 | frames=100
+  -> rel_error=1.0006  loss=9.79e-05  params=3,361  time=50.0s  NOT CONVERGED
+
+[50/200 | global 100/400] gelu | moving_small | target=scalar | lr=0.0005 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.9981  loss=1.44e-04  params=3,361  time=49.9s  NOT CONVERGED
+
+[51/200 | global 102/400] gelu | moving_small | target=scalar | lr=0.001 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.9976  loss=1.11e-04  params=3,361  time=50.0s  NOT CONVERGED
+
+[52/200 | global 104/400] gelu | moving_small | target=scalar | lr=0.003 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.9977  loss=1.72e-04  params=3,361  time=49.9s  NOT CONVERGED
+
+[53/200 | global 106/400] siren | moving_small | target=gradient | lr=0.0001 | layers=5 | hidden=32 | frames=100 | omega=60.0
+  -> rel_error=0.6848  loss=1.09e-04  params=3,427  time=56.8s  NOT CONVERGED
+
+[54/200 | global 108/400] siren | moving_small | target=scalar | lr=0.0001 | layers=5 | hidden=32 | frames=100 | omega=60.0
+  -> rel_error=0.2026  loss=4.05e-06  params=3,361  time=54.1s  NOT CONVERGED
+
+[55/200 | global 110/400] siren | moving_small | target=gradient | lr=0.0005 | layers=5 | hidden=32 | frames=100 | omega=60.0
+  -> rel_error=0.4168  loss=3.39e-05  params=3,427  time=56.8s  NOT CONVERGED
+
+[56/200 | global 112/400] siren | moving_small | target=scalar | lr=0.0005 | layers=5 | hidden=32 | frames=100 | omega=60.0
+  -> rel_error=0.9993  loss=1.43e-04  params=3,361  time=54.1s  NOT CONVERGED
+
+[57/200 | global 114/400] siren | moving_small | target=gradient | lr=0.001 | layers=5 | hidden=32 | frames=100 | omega=60.0
+  -> rel_error=0.9999  loss=1.99e-04  params=3,427  time=56.8s  NOT CONVERGED
+
+[58/200 | global 116/400] siren | moving_small | target=scalar | lr=0.001 | layers=5 | hidden=32 | frames=100 | omega=60.0
+  -> rel_error=0.9994  loss=1.25e-04  params=3,361  time=54.1s  NOT CONVERGED
+
+[59/200 | global 118/400] siren | moving_small | target=gradient | lr=0.003 | layers=5 | hidden=32 | frames=100 | omega=60.0
+  -> rel_error=1.0000  loss=2.18e-04  params=3,427  time=56.8s  NOT CONVERGED
+
+[60/200 | global 120/400] siren | moving_small | target=scalar | lr=0.003 | layers=5 | hidden=32 | frames=100 | omega=60.0
+  -> rel_error=0.9994  loss=1.41e-04  params=3,361  time=54.1s  NOT CONVERGED
+
+[61/200 | global 122/400] relu | multi_small_orbit | target=scalar | lr=0.0001 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.9807  loss=2.60e-04  params=3,361  time=50.0s  NOT CONVERGED
+
+[62/200 | global 124/400] relu | multi_small_orbit | target=scalar | lr=0.0005 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.8934  loss=3.05e-04  params=3,361  time=50.0s  NOT CONVERGED
+
+[63/200 | global 126/400] relu | multi_small_orbit | target=scalar | lr=0.001 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.9862  loss=2.92e-04  params=3,361  time=50.0s  NOT CONVERGED
+
+[64/200 | global 128/400] relu | multi_small_orbit | target=scalar | lr=0.003 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.7141  loss=1.78e-04  params=3,361  time=50.1s  NOT CONVERGED
+
+[65/200 | global 130/400] tanh | multi_small_orbit | target=scalar | lr=0.0001 | layers=5 | hidden=32 | frames=100
+  -> rel_error=1.0008  loss=2.76e-04  params=3,361  time=50.0s  NOT CONVERGED
+
+[66/200 | global 132/400] tanh | multi_small_orbit | target=scalar | lr=0.0005 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.9939  loss=2.99e-04  params=3,361  time=50.0s  NOT CONVERGED
+
+[67/200 | global 134/400] tanh | multi_small_orbit | target=scalar | lr=0.001 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.9939  loss=2.76e-04  params=3,361  time=50.0s  NOT CONVERGED
+
+[68/200 | global 136/400] tanh | multi_small_orbit | target=scalar | lr=0.003 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.9938  loss=2.85e-04  params=3,361  time=50.0s  NOT CONVERGED
+
+[69/200 | global 138/400] gelu | multi_small_orbit | target=scalar | lr=0.0001 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.9997  loss=2.75e-04  params=3,361  time=49.9s  NOT CONVERGED
+
+[70/200 | global 140/400] gelu | multi_small_orbit | target=scalar | lr=0.0005 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.9940  loss=4.25e-04  params=3,361  time=49.9s  NOT CONVERGED
+
+[71/200 | global 142/400] gelu | multi_small_orbit | target=scalar | lr=0.001 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.9939  loss=2.69e-04  params=3,361  time=49.9s  NOT CONVERGED
+
+[72/200 | global 144/400] gelu | multi_small_orbit | target=scalar | lr=0.003 | layers=5 | hidden=32 | frames=100
+  -> rel_error=0.9864  loss=2.40e-04  params=3,361  time=49.9s  NOT CONVERGED
+
+[73/200 | global 146/400] siren | multi_small_orbit | target=gradient | lr=0.0001 | layers=5 | hidden=32 | frames=100 | omega=60.0
+  -> rel_error=0.7492  loss=2.40e-04  params=3,427  time=56.7s  NOT CONVERGED
+
+[74/200 | global 148/400] siren | multi_small_orbit | target=scalar | lr=0.0001 | layers=5 | hidden=32 | frames=100 | omega=60.0
+  -> rel_error=0.3529  loss=3.64e-05  params=3,361  time=54.0s  NOT CONVERGED
+
+[75/200 | global 150/400] siren | multi_small_orbit | target=gradient | lr=0.0005 | layers=5 | hidden=32 | frames=100 | omega=60.0
+  -> rel_error=0.9176  loss=2.78e-04  params=3,427  time=56.7s  NOT CONVERGED
+
+[76/200 | global 152/400] siren | multi_small_orbit | target=scalar | lr=0.0005 | layers=5 | hidden=32 | frames=100 | omega=60.0
+  -> rel_error=0.3192  loss=3.30e-05  params=3,361  time=54.0s  NOT CONVERGED
+
+[77/200 | global 154/400] siren | multi_small_orbit | target=gradient | lr=0.001 | layers=5 | hidden=32 | frames=100 | omega=60.0
+  -> rel_error=0.7664  loss=2.01e-04  params=3,427  time=56.7s  NOT CONVERGED
+
+[78/200 | global 156/400] siren | multi_small_orbit | target=scalar | lr=0.001 | layers=5 | hidden=32 | frames=100 | omega=60.0
+  -> rel_error=0.9982  loss=3.19e-04  params=3,361  time=54.0s  NOT CONVERGED
+
+[79/200 | global 158/400] siren | multi_small_orbit | target=gradient | lr=0.003 | layers=5 | hidden=32 | frames=100 | omega=60.0
+  -> rel_error=1.0000  loss=4.11e-04  params=3,427  time=56.8s  NOT CONVERGED
+
+[80/200 | global 160/400] siren | multi_small_orbit | target=scalar | lr=0.003 | layers=5 | hidden=32 | frames=100 | omega=60.0
+  -> rel_error=0.9983  loss=3.11e-04  params=3,361  time=54.0s  NOT CONVERGED
+
+[81/200 | global 162/400] relu | moving_blob | target=scalar | lr=0.001 | layers=1 | hidden=64 | frames=100
+  -> rel_error=0.5682  loss=5.84e-03  params=385  time=28.1s  NOT CONVERGED
+
+[82/200 | global 164/400] relu | moving_blob | target=scalar | lr=0.001 | layers=2 | hidden=64 | frames=100
+  -> rel_error=0.5280  loss=5.05e-03  params=385  time=28.0s  NOT CONVERGED
+
+[83/200 | global 166/400] relu | moving_blob | target=scalar | lr=0.001 | layers=3 | hidden=64 | frames=100
+  -> rel_error=0.1327  loss=2.40e-04  params=4,545  time=49.5s  NOT CONVERGED
+
+[84/200 | global 168/400] relu | moving_blob | target=scalar | lr=0.001 | layers=5 | hidden=64 | frames=100
+  -> rel_error=0.0592  loss=6.73e-05  params=12,865  time=94.3s  NOT CONVERGED
+
+[85/200 | global 170/400] relu | moving_blob | target=scalar | lr=0.001 | layers=7 | hidden=64 | frames=100
+  -> rel_error=0.0531  loss=5.54e-05  params=21,185  time=139.8s  NOT CONVERGED
+
+[86/200 | global 172/400] relu | moving_blob | target=scalar | lr=0.001 | layers=1 | hidden=128 | frames=100
+  -> rel_error=0.4089  loss=3.52e-03  params=769  time=30.6s  NOT CONVERGED
+
+[87/200 | global 174/400] relu | moving_blob | target=scalar | lr=0.001 | layers=2 | hidden=128 | frames=100
+  -> rel_error=0.4494  loss=3.95e-03  params=769  time=30.6s  NOT CONVERGED
+
+[88/200 | global 176/400] relu | moving_blob | target=scalar | lr=0.001 | layers=3 | hidden=128 | frames=100
+  -> rel_error=0.1441  loss=3.44e-04  params=17,281  time=57.7s  NOT CONVERGED
+
+[89/200 | global 178/400] relu | moving_blob | target=scalar | lr=0.001 | layers=5 | hidden=128 | frames=100
+  -> rel_error=0.0311  loss=1.84e-05  params=50,305  time=113.0s  CONVERGED
+
+[90/200 | global 180/400] relu | moving_blob | target=scalar | lr=0.001 | layers=7 | hidden=128 | frames=100
+  -> rel_error=0.0292  loss=1.62e-05  params=83,329  time=171.3s  CONVERGED
+
+[91/200 | global 182/400] relu | moving_blob | target=scalar | lr=0.001 | layers=1 | hidden=256 | frames=100
+  -> rel_error=0.3231  loss=1.92e-03  params=1,537  time=54.6s  NOT CONVERGED
+
+[92/200 | global 184/400] relu | moving_blob | target=scalar | lr=0.001 | layers=2 | hidden=256 | frames=100
+  -> rel_error=0.3421  loss=2.29e-03  params=1,537  time=54.6s  NOT CONVERGED
+
+[93/200 | global 186/400] relu | moving_blob | target=scalar | lr=0.001 | layers=3 | hidden=256 | frames=100
+  -> rel_error=0.0691  loss=9.88e-05  params=67,329  time=115.8s  NOT CONVERGED
+
+[94/200 | global 188/400] relu | moving_blob | target=scalar | lr=0.001 | layers=5 | hidden=256 | frames=100
+  -> rel_error=0.0255  loss=1.15e-05  params=198,913  time=237.4s  CONVERGED
+
+[95/200 | global 190/400] relu | moving_blob | target=scalar | lr=0.001 | layers=7 | hidden=256 | frames=100
+  -> rel_error=0.0134  loss=3.51e-06  params=330,497  time=358.8s  CONVERGED
+
+[96/200 | global 192/400] siren | moving_blob | target=scalar | lr=0.001 | layers=1 | hidden=64 | frames=100 | omega=30.0
+  -> rel_error=0.9221  loss=1.57e-02  params=5  time=7.1s  NOT CONVERGED
+
+[97/200 | global 194/400] siren | moving_blob | target=scalar | lr=0.001 | layers=2 | hidden=64 | frames=100 | omega=30.0
+  -> rel_error=0.2442  loss=1.19e-03  params=385  time=29.7s  NOT CONVERGED
+
+[98/200 | global 196/400] siren | moving_blob | target=scalar | lr=0.001 | layers=3 | hidden=64 | frames=100 | omega=30.0
+  -> rel_error=0.0161  loss=4.74e-06  params=4,545  time=53.1s  CONVERGED
+
+[99/200 | global 198/400] siren | moving_blob | target=scalar | lr=0.001 | layers=5 | hidden=64 | frames=100 | omega=30.0
+  -> rel_error=0.0142  loss=3.50e-06  params=12,865  time=101.5s  CONVERGED
+
+[100/200 | global 200/400] siren | moving_blob | target=scalar | lr=0.001 | layers=7 | hidden=64 | frames=100 | omega=30.0
+  -> rel_error=0.0095  loss=1.55e-06  params=21,185  time=150.6s  CONVERGED
+
+[101/200 | global 202/400] siren | moving_blob | target=scalar | lr=0.001 | layers=1 | hidden=128 | frames=100 | omega=30.0
+  -> rel_error=0.9229  loss=1.61e-02  params=5  time=7.0s  NOT CONVERGED
+
+[102/200 | global 204/400] siren | moving_blob | target=scalar | lr=0.001 | layers=2 | hidden=128 | frames=100 | omega=30.0
+  -> rel_error=0.1716  loss=5.00e-04  params=769  time=34.4s  NOT CONVERGED
+
+[103/200 | global 206/400] siren | moving_blob | target=scalar | lr=0.001 | layers=3 | hidden=128 | frames=100 | omega=30.0
+  -> rel_error=0.0114  loss=2.29e-06  params=17,281  time=65.1s  CONVERGED
+
+[104/200 | global 208/400] siren | moving_blob | target=scalar | lr=0.001 | layers=5 | hidden=128 | frames=100 | omega=30.0
+  -> rel_error=0.0122  loss=2.58e-06  params=50,305  time=128.1s  CONVERGED
+
+[105/200 | global 210/400] siren | moving_blob | target=scalar | lr=0.001 | layers=7 | hidden=128 | frames=100 | omega=30.0
+  -> rel_error=0.0190  loss=6.56e-06  params=83,329  time=194.0s  CONVERGED
+
+[106/200 | global 212/400] siren | moving_blob | target=scalar | lr=0.001 | layers=1 | hidden=256 | frames=100 | omega=30.0
+  -> rel_error=0.9221  loss=1.67e-02  params=5  time=7.0s  NOT CONVERGED
+
+[107/200 | global 214/400] siren | moving_blob | target=scalar | lr=0.001 | layers=2 | hidden=256 | frames=100 | omega=30.0
+  -> rel_error=0.1491  loss=3.84e-04  params=1,537  time=62.1s  NOT CONVERGED
+
+[108/200 | global 216/400] siren | moving_blob | target=scalar | lr=0.001 | layers=3 | hidden=256 | frames=100 | omega=30.0
+  -> rel_error=0.0097  loss=1.77e-06  params=67,329  time=130.5s  CONVERGED
+
+[109/200 | global 218/400] siren | moving_blob | target=scalar | lr=0.001 | layers=5 | hidden=256 | frames=100 | omega=30.0
+  -> rel_error=0.9222  loss=1.55e-02  params=198,913  time=267.1s  NOT CONVERGED
+
+[110/200 | global 220/400] siren | moving_blob | target=scalar | lr=0.001 | layers=7 | hidden=256 | frames=100 | omega=30.0
+  -> rel_error=0.9222  loss=1.60e-02  params=330,497  time=403.3s  NOT CONVERGED
+
+[111/200 | global 222/400] relu | moving_pulsating | target=scalar | lr=0.001 | layers=1 | hidden=64 | frames=100
+  -> rel_error=0.7804  loss=2.06e-03  params=385  time=28.0s  NOT CONVERGED
+
+[112/200 | global 224/400] relu | moving_pulsating | target=scalar | lr=0.001 | layers=2 | hidden=64 | frames=100
+  -> rel_error=0.7791  loss=3.04e-03  params=385  time=28.0s  NOT CONVERGED
+
+[113/200 | global 226/400] relu | moving_pulsating | target=scalar | lr=0.001 | layers=3 | hidden=64 | frames=100
+  -> rel_error=0.4486  loss=6.92e-04  params=4,545  time=49.5s  NOT CONVERGED
+
+[114/200 | global 228/400] relu | moving_pulsating | target=scalar | lr=0.001 | layers=5 | hidden=64 | frames=100
+  -> rel_error=0.1000  loss=2.04e-05  params=12,865  time=94.2s  NOT CONVERGED
+
+[115/200 | global 230/400] relu | moving_pulsating | target=scalar | lr=0.001 | layers=7 | hidden=64 | frames=100
+  -> rel_error=0.0849  loss=1.97e-05  params=21,185  time=139.8s  NOT CONVERGED
+
+[116/200 | global 232/400] relu | moving_pulsating | target=scalar | lr=0.001 | layers=1 | hidden=128 | frames=100
+  -> rel_error=0.7258  loss=1.37e-03  params=769  time=30.6s  NOT CONVERGED
+
+[117/200 | global 234/400] relu | moving_pulsating | target=scalar | lr=0.001 | layers=2 | hidden=128 | frames=100
+  -> rel_error=0.7280  loss=2.20e-03  params=769  time=30.6s  NOT CONVERGED
+
+[118/200 | global 236/400] relu | moving_pulsating | target=scalar | lr=0.001 | layers=3 | hidden=128 | frames=100
+  -> rel_error=0.2671  loss=4.88e-04  params=17,281  time=57.7s  NOT CONVERGED
+
+[119/200 | global 238/400] relu | moving_pulsating | target=scalar | lr=0.001 | layers=5 | hidden=128 | frames=100
+  -> rel_error=0.0729  loss=2.57e-05  params=50,305  time=113.0s  NOT CONVERGED
+
+[120/200 | global 240/400] relu | moving_pulsating | target=scalar | lr=0.001 | layers=7 | hidden=128 | frames=100
+  -> rel_error=0.0554  loss=1.01e-05  params=83,329  time=171.3s  NOT CONVERGED
+
+[121/200 | global 242/400] relu | moving_pulsating | target=scalar | lr=0.001 | layers=1 | hidden=256 | frames=100
+  -> rel_error=0.6550  loss=1.63e-03  params=1,537  time=54.6s  NOT CONVERGED
+
+[122/200 | global 244/400] relu | moving_pulsating | target=scalar | lr=0.001 | layers=2 | hidden=256 | frames=100
+  -> rel_error=0.6462  loss=1.66e-03  params=1,537  time=54.7s  NOT CONVERGED
+
+[123/200 | global 246/400] relu | moving_pulsating | target=scalar | lr=0.001 | layers=3 | hidden=256 | frames=100
+  -> rel_error=0.2532  loss=2.08e-04  params=67,329  time=115.7s  NOT CONVERGED
+
+[124/200 | global 248/400] relu | moving_pulsating | target=scalar | lr=0.001 | layers=5 | hidden=256 | frames=100
+  -> rel_error=0.0474  loss=6.47e-06  params=198,913  time=237.1s  CONVERGED
+
+[125/200 | global 250/400] relu | moving_pulsating | target=scalar | lr=0.001 | layers=7 | hidden=256 | frames=100
+  -> rel_error=0.0552  loss=4.49e-06  params=330,497  time=358.8s  NOT CONVERGED
+
+[126/200 | global 252/400] siren | moving_pulsating | target=scalar | lr=0.001 | layers=1 | hidden=64 | frames=100 | omega=30.0
+  -> rel_error=0.9642  loss=2.89e-03  params=5  time=7.1s  NOT CONVERGED
+
+[127/200 | global 254/400] siren | moving_pulsating | target=scalar | lr=0.001 | layers=2 | hidden=64 | frames=100 | omega=30.0
+  -> rel_error=0.5271  loss=1.14e-03  params=385  time=29.7s  NOT CONVERGED
+
+[128/200 | global 256/400] siren | moving_pulsating | target=scalar | lr=0.001 | layers=3 | hidden=64 | frames=100 | omega=30.0
+  -> rel_error=0.0971  loss=3.90e-05  params=4,545  time=53.1s  NOT CONVERGED
+
+[129/200 | global 258/400] siren | moving_pulsating | target=scalar | lr=0.001 | layers=5 | hidden=64 | frames=100 | omega=30.0
+  -> rel_error=0.0220  loss=1.85e-06  params=12,865  time=101.5s  CONVERGED
+
+[130/200 | global 260/400] siren | moving_pulsating | target=scalar | lr=0.001 | layers=7 | hidden=64 | frames=100 | omega=30.0
+  -> rel_error=0.0371  loss=6.24e-06  params=21,185  time=150.5s  CONVERGED
+
+[131/200 | global 262/400] siren | moving_pulsating | target=scalar | lr=0.001 | layers=1 | hidden=128 | frames=100 | omega=30.0
+  -> rel_error=0.9641  loss=4.08e-03  params=5  time=7.0s  NOT CONVERGED
+
+[132/200 | global 264/400] siren | moving_pulsating | target=scalar | lr=0.001 | layers=2 | hidden=128 | frames=100 | omega=30.0
+  -> rel_error=0.4740  loss=4.42e-04  params=769  time=34.4s  NOT CONVERGED
+
+[133/200 | global 266/400] siren | moving_pulsating | target=scalar | lr=0.001 | layers=3 | hidden=128 | frames=100 | omega=30.0
+  -> rel_error=0.0603  loss=1.86e-05  params=17,281  time=65.1s  NOT CONVERGED
+
+[134/200 | global 268/400] siren | moving_pulsating | target=scalar | lr=0.001 | layers=5 | hidden=128 | frames=100 | omega=30.0
+  -> rel_error=0.0568  loss=9.88e-06  params=50,305  time=128.1s  NOT CONVERGED
+
+[135/200 | global 270/400] siren | moving_pulsating | target=scalar | lr=0.001 | layers=7 | hidden=128 | frames=100 | omega=30.0
+  -> rel_error=0.9675  loss=2.67e-03  params=83,329  time=193.9s  NOT CONVERGED
+
+[136/200 | global 272/400] siren | moving_pulsating | target=scalar | lr=0.001 | layers=1 | hidden=256 | frames=100 | omega=30.0
+  -> rel_error=0.9644  loss=1.59e-03  params=5  time=7.0s  NOT CONVERGED
+
+[137/200 | global 274/400] siren | moving_pulsating | target=scalar | lr=0.001 | layers=2 | hidden=256 | frames=100 | omega=30.0
+  -> rel_error=0.4501  loss=1.22e-03  params=1,537  time=62.2s  NOT CONVERGED
+
+[138/200 | global 276/400] siren | moving_pulsating | target=scalar | lr=0.001 | layers=3 | hidden=256 | frames=100 | omega=30.0
+  -> rel_error=0.0764  loss=1.94e-05  params=67,329  time=130.5s  NOT CONVERGED
+
+[139/200 | global 278/400] siren | moving_pulsating | target=scalar | lr=0.001 | layers=5 | hidden=256 | frames=100 | omega=30.0
+  -> rel_error=0.0523  loss=8.13e-06  params=198,913  time=267.0s  NOT CONVERGED
+
+[140/200 | global 280/400] siren | moving_pulsating | target=scalar | lr=0.001 | layers=7 | hidden=256 | frames=100 | omega=30.0
+  -> rel_error=0.9674  loss=6.82e-03  params=330,497  time=403.5s  NOT CONVERGED
+
+[141/200 | global 282/400] relu | moving_small | target=scalar | lr=0.001 | layers=1 | hidden=64 | frames=100
+  -> rel_error=0.9948  loss=1.20e-04  params=385  time=28.0s  NOT CONVERGED
+
+[142/200 | global 284/400] relu | moving_small | target=scalar | lr=0.001 | layers=2 | hidden=64 | frames=100
+  -> rel_error=0.9907  loss=1.11e-04  params=385  time=28.0s  NOT CONVERGED
+
+[143/200 | global 286/400] relu | moving_small | target=scalar | lr=0.001 | layers=3 | hidden=64 | frames=100
+  -> rel_error=0.9837  loss=1.10e-04  params=4,545  time=49.5s  NOT CONVERGED
+
+[144/200 | global 288/400] relu | moving_small | target=scalar | lr=0.001 | layers=5 | hidden=64 | frames=100
+  -> rel_error=0.8413  loss=7.65e-05  params=12,865  time=94.2s  NOT CONVERGED
+
+[145/200 | global 290/400] relu | moving_small | target=scalar | lr=0.001 | layers=7 | hidden=64 | frames=100
+  -> rel_error=0.1936  loss=4.70e-06  params=21,185  time=139.8s  NOT CONVERGED
+
+[146/200 | global 292/400] relu | moving_small | target=scalar | lr=0.001 | layers=1 | hidden=128 | frames=100
+  -> rel_error=0.9889  loss=1.46e-04  params=769  time=30.6s  NOT CONVERGED
+
+[147/200 | global 294/400] relu | moving_small | target=scalar | lr=0.001 | layers=2 | hidden=128 | frames=100
+  -> rel_error=0.9892  loss=1.56e-04  params=769  time=30.6s  NOT CONVERGED
+
+[148/200 | global 296/400] relu | moving_small | target=scalar | lr=0.001 | layers=3 | hidden=128 | frames=100
+  -> rel_error=0.9600  loss=1.71e-04  params=17,281  time=57.7s  NOT CONVERGED
+
+[149/200 | global 298/400] relu | moving_small | target=scalar | lr=0.001 | layers=5 | hidden=128 | frames=100
+  -> rel_error=0.3065  loss=1.68e-05  params=50,305  time=113.0s  NOT CONVERGED
+
+[150/200 | global 300/400] relu | moving_small | target=scalar | lr=0.001 | layers=7 | hidden=128 | frames=100
+  -> rel_error=0.1327  loss=1.59e-06  params=83,329  time=171.3s  NOT CONVERGED
+
+[151/200 | global 302/400] relu | moving_small | target=scalar | lr=0.001 | layers=1 | hidden=256 | frames=100
+  -> rel_error=0.9869  loss=1.18e-04  params=1,537  time=54.6s  NOT CONVERGED
+
+[152/200 | global 304/400] relu | moving_small | target=scalar | lr=0.001 | layers=2 | hidden=256 | frames=100
+  -> rel_error=0.9839  loss=1.61e-04  params=1,537  time=54.6s  NOT CONVERGED
+
+[153/200 | global 306/400] relu | moving_small | target=scalar | lr=0.001 | layers=3 | hidden=256 | frames=100
+  -> rel_error=0.9666  loss=1.57e-04  params=67,329  time=115.8s  NOT CONVERGED
+
+[154/200 | global 308/400] relu | moving_small | target=scalar | lr=0.001 | layers=5 | hidden=256 | frames=100
+  -> rel_error=0.0773  loss=6.66e-07  params=198,913  time=237.2s  NOT CONVERGED
+
+[155/200 | global 310/400] relu | moving_small | target=scalar | lr=0.001 | layers=7 | hidden=256 | frames=100
+  -> rel_error=0.0636  loss=5.27e-07  params=330,497  time=358.6s  NOT CONVERGED
+
+[156/200 | global 312/400] siren | moving_small | target=scalar | lr=0.001 | layers=1 | hidden=64 | frames=100 | omega=30.0
+  -> rel_error=1.0017  loss=1.89e-04  params=5  time=7.1s  NOT CONVERGED
+
+[157/200 | global 314/400] siren | moving_small | target=scalar | lr=0.001 | layers=2 | hidden=64 | frames=100 | omega=30.0
+  -> rel_error=0.9832  loss=1.47e-04  params=385  time=29.7s  NOT CONVERGED
+
+[158/200 | global 316/400] siren | moving_small | target=scalar | lr=0.001 | layers=3 | hidden=64 | frames=100 | omega=30.0
+  -> rel_error=0.4907  loss=3.64e-05  params=4,545  time=53.1s  NOT CONVERGED
+
+[159/200 | global 318/400] siren | moving_small | target=scalar | lr=0.001 | layers=5 | hidden=64 | frames=100 | omega=30.0
+  -> rel_error=0.0825  loss=5.31e-07  params=12,865  time=101.5s  NOT CONVERGED
+
+[160/200 | global 320/400] siren | moving_small | target=scalar | lr=0.001 | layers=7 | hidden=64 | frames=100 | omega=30.0
+  -> rel_error=0.9994  loss=1.67e-04  params=21,185  time=150.6s  NOT CONVERGED
+
+[161/200 | global 322/400] siren | moving_small | target=scalar | lr=0.001 | layers=1 | hidden=128 | frames=100 | omega=30.0
+  -> rel_error=0.9994  loss=1.72e-04  params=5  time=7.1s  NOT CONVERGED
+
+[162/200 | global 324/400] siren | moving_small | target=scalar | lr=0.001 | layers=2 | hidden=128 | frames=100 | omega=30.0
+  -> rel_error=0.9777  loss=1.21e-04  params=769  time=34.4s  NOT CONVERGED
+
+[163/200 | global 326/400] siren | moving_small | target=scalar | lr=0.001 | layers=3 | hidden=128 | frames=100 | omega=30.0
+  -> rel_error=0.3570  loss=1.94e-05  params=17,281  time=65.1s  NOT CONVERGED
+
+[164/200 | global 328/400] siren | moving_small | target=scalar | lr=0.001 | layers=5 | hidden=128 | frames=100 | omega=30.0
+  -> rel_error=0.0500  loss=2.44e-07  params=50,305  time=128.1s  NOT CONVERGED
+
+[165/200 | global 330/400] siren | moving_small | target=scalar | lr=0.001 | layers=7 | hidden=128 | frames=100 | omega=30.0
+  -> rel_error=0.2358  loss=8.15e-06  params=83,329  time=194.1s  NOT CONVERGED
+
+[166/200 | global 332/400] siren | moving_small | target=scalar | lr=0.001 | layers=1 | hidden=256 | frames=100 | omega=30.0
+  -> rel_error=0.9994  loss=8.38e-05  params=5  time=7.1s  NOT CONVERGED
+
+[167/200 | global 334/400] siren | moving_small | target=scalar | lr=0.001 | layers=2 | hidden=256 | frames=100 | omega=30.0
+  -> rel_error=0.9714  loss=1.24e-04  params=1,537  time=62.2s  NOT CONVERGED
+
+[168/200 | global 336/400] siren | moving_small | target=scalar | lr=0.001 | layers=3 | hidden=256 | frames=100 | omega=30.0
+  -> rel_error=0.3192  loss=1.61e-05  params=67,329  time=130.5s  NOT CONVERGED
+
+[169/200 | global 338/400] siren | moving_small | target=scalar | lr=0.001 | layers=5 | hidden=256 | frames=100 | omega=30.0
+  -> rel_error=0.1561  loss=3.83e-06  params=198,913  time=267.0s  NOT CONVERGED
+
+[170/200 | global 340/400] siren | moving_small | target=scalar | lr=0.001 | layers=7 | hidden=256 | frames=100 | omega=30.0
+  -> rel_error=0.9992  loss=1.16e-04  params=330,497  time=403.5s  NOT CONVERGED
+
+[171/200 | global 342/400] relu | multi_small_orbit | target=scalar | lr=0.001 | layers=1 | hidden=64 | frames=100
+  -> rel_error=0.9900  loss=2.90e-04  params=385  time=28.1s  NOT CONVERGED
+
+[172/200 | global 344/400] relu | multi_small_orbit | target=scalar | lr=0.001 | layers=2 | hidden=64 | frames=100
+  -> rel_error=0.9857  loss=2.31e-04  params=385  time=28.0s  NOT CONVERGED
+
+[173/200 | global 346/400] relu | multi_small_orbit | target=scalar | lr=0.001 | layers=3 | hidden=64 | frames=100
+  -> rel_error=0.9609  loss=2.63e-04  params=4,545  time=49.5s  NOT CONVERGED
+
+[174/200 | global 348/400] relu | multi_small_orbit | target=scalar | lr=0.001 | layers=5 | hidden=64 | frames=100
+  -> rel_error=0.9021  loss=2.83e-04  params=12,865  time=94.3s  NOT CONVERGED
+
+[175/200 | global 350/400] relu | multi_small_orbit | target=scalar | lr=0.001 | layers=7 | hidden=64 | frames=100
+  -> rel_error=0.5641  loss=9.65e-05  params=21,185  time=139.8s  NOT CONVERGED
+
+[176/200 | global 352/400] relu | multi_small_orbit | target=scalar | lr=0.001 | layers=1 | hidden=128 | frames=100
+  -> rel_error=0.9809  loss=2.50e-04  params=769  time=30.6s  NOT CONVERGED
+
+[177/200 | global 354/400] relu | multi_small_orbit | target=scalar | lr=0.001 | layers=2 | hidden=128 | frames=100
+  -> rel_error=0.9759  loss=3.32e-04  params=769  time=30.6s  NOT CONVERGED
+
+[178/200 | global 356/400] relu | multi_small_orbit | target=scalar | lr=0.001 | layers=3 | hidden=128 | frames=100
+  -> rel_error=0.9441  loss=2.83e-04  params=17,281  time=57.7s  NOT CONVERGED
+
+[179/200 | global 358/400] relu | multi_small_orbit | target=scalar | lr=0.001 | layers=5 | hidden=128 | frames=100
+  -> rel_error=0.5064  loss=8.80e-05  params=50,305  time=112.9s  NOT CONVERGED
+
+[180/200 | global 360/400] relu | multi_small_orbit | target=scalar | lr=0.001 | layers=7 | hidden=128 | frames=100
+  -> rel_error=0.3148  loss=2.99e-05  params=83,329  time=171.4s  NOT CONVERGED
+
+[181/200 | global 362/400] relu | multi_small_orbit | target=scalar | lr=0.001 | layers=1 | hidden=256 | frames=100
+  -> rel_error=0.9764  loss=2.98e-04  params=1,537  time=54.6s  NOT CONVERGED
+
+[182/200 | global 364/400] relu | multi_small_orbit | target=scalar | lr=0.001 | layers=2 | hidden=256 | frames=100
+  -> rel_error=0.9805  loss=3.24e-04  params=1,537  time=54.6s  NOT CONVERGED
+
+[183/200 | global 366/400] relu | multi_small_orbit | target=scalar | lr=0.001 | layers=3 | hidden=256 | frames=100
+  -> rel_error=0.9613  loss=2.33e-04  params=67,329  time=115.8s  NOT CONVERGED
+
+[184/200 | global 368/400] relu | multi_small_orbit | target=scalar | lr=0.001 | layers=5 | hidden=256 | frames=100
+  -> rel_error=0.4455  loss=6.76e-05  params=198,913  time=237.4s  NOT CONVERGED
+
+[185/200 | global 370/400] relu | multi_small_orbit | target=scalar | lr=0.001 | layers=7 | hidden=256 | frames=100
+  -> rel_error=0.5104  loss=7.71e-05  params=330,497  time=358.8s  NOT CONVERGED
+
+[186/200 | global 372/400] siren | multi_small_orbit | target=scalar | lr=0.001 | layers=1 | hidden=64 | frames=100 | omega=30.0
+  -> rel_error=0.9983  loss=2.73e-04  params=5  time=7.0s  NOT CONVERGED
+
+[187/200 | global 374/400] siren | multi_small_orbit | target=scalar | lr=0.001 | layers=2 | hidden=64 | frames=100 | omega=30.0
+  -> rel_error=0.9720  loss=2.44e-04  params=385  time=29.7s  NOT CONVERGED
+
+[188/200 | global 376/400] siren | multi_small_orbit | target=scalar | lr=0.001 | layers=3 | hidden=64 | frames=100 | omega=30.0
+  -> rel_error=0.7147  loss=1.87e-04  params=4,545  time=53.0s  NOT CONVERGED
+
+[189/200 | global 378/400] siren | multi_small_orbit | target=scalar | lr=0.001 | layers=5 | hidden=64 | frames=100 | omega=30.0
+  -> rel_error=0.0991  loss=3.02e-06  params=12,865  time=101.5s  NOT CONVERGED
+
+[190/200 | global 380/400] siren | multi_small_orbit | target=scalar | lr=0.001 | layers=7 | hidden=64 | frames=100 | omega=30.0
+  -> rel_error=0.0773  loss=1.16e-06  params=21,185  time=150.6s  NOT CONVERGED
+
+[191/200 | global 382/400] siren | multi_small_orbit | target=scalar | lr=0.001 | layers=1 | hidden=128 | frames=100 | omega=30.0
+  -> rel_error=0.9983  loss=2.25e-04  params=5  time=7.0s  NOT CONVERGED
+
+[192/200 | global 384/400] siren | multi_small_orbit | target=scalar | lr=0.001 | layers=2 | hidden=128 | frames=100 | omega=30.0
+  -> rel_error=0.9666  loss=2.56e-04  params=769  time=34.4s  NOT CONVERGED
+
+[193/200 | global 386/400] siren | multi_small_orbit | target=scalar | lr=0.001 | layers=3 | hidden=128 | frames=100 | omega=30.0
+  -> rel_error=0.5123  loss=8.16e-05  params=17,281  time=65.2s  NOT CONVERGED
+
+[194/200 | global 388/400] siren | multi_small_orbit | target=scalar | lr=0.001 | layers=5 | hidden=128 | frames=100 | omega=30.0
+  -> rel_error=0.0889  loss=9.20e-07  params=50,305  time=128.1s  NOT CONVERGED
+
+[195/200 | global 390/400] siren | multi_small_orbit | target=scalar | lr=0.001 | layers=7 | hidden=128 | frames=100 | omega=30.0
+  -> rel_error=0.9983  loss=3.46e-04  params=83,329  time=194.0s  NOT CONVERGED
+
+[196/200 | global 392/400] siren | multi_small_orbit | target=scalar | lr=0.001 | layers=1 | hidden=256 | frames=100 | omega=30.0
+  -> rel_error=0.9983  loss=3.17e-04  params=5  time=7.0s  NOT CONVERGED
+
+[197/200 | global 394/400] siren | multi_small_orbit | target=scalar | lr=0.001 | layers=2 | hidden=256 | frames=100 | omega=30.0
+  -> rel_error=0.9622  loss=3.40e-04  params=1,537  time=62.2s  NOT CONVERGED
+
+[198/200 | global 396/400] siren | multi_small_orbit | target=scalar | lr=0.001 | layers=3 | hidden=256 | frames=100 | omega=30.0
+  -> rel_error=0.3859  loss=4.99e-05  params=67,329  time=130.5s  NOT CONVERGED
+
+[199/200 | global 398/400] siren | multi_small_orbit | target=scalar | lr=0.001 | layers=5 | hidden=256 | frames=100 | omega=30.0
+  -> rel_error=0.9983  loss=3.22e-04  params=198,913  time=266.8s  NOT CONVERGED
+
+[200/200 | global 400/400] siren | multi_small_orbit | target=scalar | lr=0.001 | layers=7 | hidden=256 | frames=100 | omega=30.0
+  -> rel_error=0.9982  loss=2.82e-04  params=330,497  time=403.4s  NOT CONVERGED
+
+Worker 1 results saved to results/field_sweep_dynamic_h32/sweep_results_worker1.npz
+
+Summary: 17/200 converged (rel_error < 0.05)

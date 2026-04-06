@@ -84,21 +84,40 @@ def register_dynamic_field(name):
 
 @register_dynamic_field("moving_blob")
 def _moving_blob(Nx, L, n_frames, device):
-    """Single Gaussian blob moving in a circle around center of domain."""
+    """Single Gaussian blob (sigma=0.15) moving in a circle."""
     X, Y, Z = make_grid(Nx, L, device)
     times = torch.linspace(0, 1, n_frames, dtype=torch.float64, device=device)
-
-    radius = 0.2  # orbit radius
-    sigma = 0.15
-    amp = 1.0
 
     c_all = []
     gc_all = []
     for t_val in times:
         angle = 2 * torch.pi * t_val
-        cx = 0.5 + radius * torch.cos(angle)
-        cy = 0.5 + radius * torch.sin(angle)
+        cx = 0.5 + 0.2 * torch.cos(angle)
+        cy = 0.5 + 0.2 * torch.sin(angle)
         cz = 0.5
+        c = gaussian_blob(X, Y, Z, L, 1.0, 0.15, cx, cy, cz)
+        gx, gy, gz = spectral_gradient(c, Nx, L)
+        c_all.append(c)
+        gc_all.append(torch.stack([gx, gy, gz], dim=-1))
+
+    return X, Y, Z, times, torch.stack(c_all), torch.stack(gc_all)
+
+
+@register_dynamic_field("moving_pulsating")
+def _moving_pulsating(Nx, L, n_frames, device):
+    """Moving blob with time-varying amplitude and width."""
+    X, Y, Z = make_grid(Nx, L, device)
+    times = torch.linspace(0, 1, n_frames, dtype=torch.float64, device=device)
+
+    c_all = []
+    gc_all = []
+    for t_val in times:
+        angle = 2 * torch.pi * t_val
+        cx = 0.5 + 0.2 * torch.cos(angle)
+        cy = 0.5 + 0.2 * torch.sin(angle)
+        cz = 0.5
+        amp = 0.5 + 0.5 * torch.sin(4 * torch.pi * t_val)
+        sigma = 0.10 + 0.08 * torch.cos(4 * torch.pi * t_val)
         c = gaussian_blob(X, Y, Z, L, amp, sigma, cx, cy, cz)
         gx, gy, gz = spectral_gradient(c, Nx, L)
         c_all.append(c)
@@ -107,9 +126,9 @@ def _moving_blob(Nx, L, n_frames, device):
     return X, Y, Z, times, torch.stack(c_all), torch.stack(gc_all)
 
 
-@register_dynamic_field("multi_orbit")
-def _multi_orbit(Nx, L, n_frames, device):
-    """Two blobs orbiting in opposite directions."""
+@register_dynamic_field("moving_small")
+def _moving_small(Nx, L, n_frames, device):
+    """Small moving blob (sigma=0.03) — very localized, steep gradients."""
     X, Y, Z = make_grid(Nx, L, device)
     times = torch.linspace(0, 1, n_frames, dtype=torch.float64, device=device)
 
@@ -117,56 +136,37 @@ def _multi_orbit(Nx, L, n_frames, device):
     gc_all = []
     for t_val in times:
         angle = 2 * torch.pi * t_val
-        # blob 1: clockwise
-        c1 = gaussian_blob(X, Y, Z, L, 1.0, 0.12,
-                           0.5 + 0.2 * torch.cos(angle),
-                           0.5 + 0.2 * torch.sin(angle), 0.5)
-        # blob 2: counter-clockwise, offset in z
-        c2 = gaussian_blob(X, Y, Z, L, 0.7, 0.10,
-                           0.5 + 0.15 * torch.cos(-angle + torch.pi),
-                           0.5 + 0.15 * torch.sin(-angle + torch.pi),
-                           0.5 + 0.1 * torch.sin(angle))
-        c = c1 + c2
-        gx, gy, gz = spectral_gradient(c, Nx, L)
-        c_all.append(c)
-        gc_all.append(torch.stack([gx, gy, gz], dim=-1))
-
-    return X, Y, Z, times, torch.stack(c_all), torch.stack(gc_all)
-
-
-@register_dynamic_field("pulsating_blob")
-def _pulsating_blob(Nx, L, n_frames, device):
-    """Blob at center with time-varying amplitude and width."""
-    X, Y, Z = make_grid(Nx, L, device)
-    times = torch.linspace(0, 1, n_frames, dtype=torch.float64, device=device)
-
-    c_all = []
-    gc_all = []
-    for t_val in times:
-        amp = 0.5 + 0.5 * torch.sin(2 * torch.pi * t_val)
-        sigma = 0.10 + 0.08 * torch.cos(2 * torch.pi * t_val)
-        c = gaussian_blob(X, Y, Z, L, amp, sigma, 0.5, 0.5, 0.5)
-        gx, gy, gz = spectral_gradient(c, Nx, L)
-        c_all.append(c)
-        gc_all.append(torch.stack([gx, gy, gz], dim=-1))
-
-    return X, Y, Z, times, torch.stack(c_all), torch.stack(gc_all)
-
-
-@register_dynamic_field("moving_narrow")
-def _moving_narrow(Nx, L, n_frames, device):
-    """Narrow moving blob — harder due to sharp gradients."""
-    X, Y, Z = make_grid(Nx, L, device)
-    times = torch.linspace(0, 1, n_frames, dtype=torch.float64, device=device)
-
-    c_all = []
-    gc_all = []
-    for t_val in times:
-        angle = 2 * torch.pi * t_val
-        cx = 0.5 + 0.25 * torch.cos(angle)
-        cy = 0.5 + 0.25 * torch.sin(angle)
+        cx = 0.5 + 0.2 * torch.cos(angle)
+        cy = 0.5 + 0.2 * torch.sin(angle)
         cz = 0.5
-        c = gaussian_blob(X, Y, Z, L, 1.0, 0.05, cx, cy, cz)
+        c = gaussian_blob(X, Y, Z, L, 1.0, 0.03, cx, cy, cz)
+        gx, gy, gz = spectral_gradient(c, Nx, L)
+        c_all.append(c)
+        gc_all.append(torch.stack([gx, gy, gz], dim=-1))
+
+    return X, Y, Z, times, torch.stack(c_all), torch.stack(gc_all)
+
+
+@register_dynamic_field("multi_small_orbit")
+def _multi_small_orbit(Nx, L, n_frames, device):
+    """Three small blobs (sigma=0.03) orbiting at different speeds."""
+    X, Y, Z = make_grid(Nx, L, device)
+    times = torch.linspace(0, 1, n_frames, dtype=torch.float64, device=device)
+
+    c_all = []
+    gc_all = []
+    for t_val in times:
+        c = torch.zeros_like(X)
+        for k, (amp, rad, speed, z_off) in enumerate([
+            (1.0, 0.25, 1.0, 0.0),
+            (0.8, 0.15, -1.5, 0.1),
+            (0.6, 0.20, 2.0, -0.1),
+        ]):
+            angle = 2 * torch.pi * speed * t_val + k * 2 * torch.pi / 3
+            cx = 0.5 + rad * torch.cos(angle)
+            cy = 0.5 + rad * torch.sin(angle)
+            cz = 0.5 + z_off * torch.sin(2 * torch.pi * t_val)
+            c = c + gaussian_blob(X, Y, Z, L, amp, 0.03, cx, cy, cz)
         gx, gy, gz = spectral_gradient(c, Nx, L)
         c_all.append(c)
         gc_all.append(torch.stack([gx, gy, gz], dim=-1))
@@ -195,12 +195,18 @@ class MLPModel(nn.Module):
 def build_model(arch, input_size, output_size, n_layers, hidden_size, device, **kwargs):
     if arch == 'siren':
         omega = kwargs.get('omega', 30.0)
-        model = Siren(
-            in_features=input_size, out_features=output_size,
-            hidden_features=hidden_size, hidden_layers=n_layers - 2,
-            outermost_linear=True,
-            first_omega_0=omega, hidden_omega_0=omega,
-        )
+        # n_layers=1: single linear (input -> output)
+        # n_layers=2: input sine + output linear (hidden_layers=0)
+        # n_layers=3+: input sine + (n-2) hidden sine + output linear
+        if n_layers == 1:
+            model = nn.Linear(input_size, output_size)
+        else:
+            model = Siren(
+                in_features=input_size, out_features=output_size,
+                hidden_features=hidden_size, hidden_layers=max(n_layers - 2, 0),
+                outermost_linear=True,
+                first_omega_0=omega, hidden_omega_0=omega,
+            )
     else:
         model = MLPModel(input_size, output_size, n_layers, hidden_size, activation=arch)
     return model.to(device)
@@ -216,13 +222,13 @@ class ExperimentConfig:
     target: str = "gradient"       # "gradient" or "scalar"
     arch: str = "relu"             # "relu", "tanh", "gelu", "siren"
     n_layers: int = 5
-    hidden_size: int = 128
+    hidden_size: int = 32
     lr: float = 1e-3
     n_iters: int = 5000
     batch_frames: int = 8         # number of time frames per batch (like GNN)
-    batch_points: int = 512       # spatial points per frame
+    batch_points: int = 10000     # spatial points per frame
     omega: float = 30.0           # SIREN only
-    Nx: int = 48                  # smaller grid to fit memory with many frames
+    Nx: int = 100                 # grid resolution per axis (100^3 = 1M points)
     L: float = 1.0
     n_frames: int = 100           # number of time snapshots
 
@@ -365,11 +371,11 @@ def get_sweep_configs(quick=False):
         n_iters = 1000
         n_frames = 50
     else:
-        fields = ["moving_blob", "multi_orbit", "pulsating_blob", "moving_narrow"]
+        fields = ["moving_blob", "moving_pulsating", "moving_small", "multi_small_orbit"]
         archs = ["relu", "tanh", "gelu", "siren"]
         lrs = [1e-4, 5e-4, 1e-3, 3e-3]
         hidden_sizes = [64, 128, 256]
-        n_layers_list = [3, 5, 7]
+        n_layers_list = [1, 2, 3, 5, 7]
         n_iters = 5000
         n_frames = 100
 
@@ -422,20 +428,31 @@ def main():
     parser = argparse.ArgumentParser(description="Dynamic field learning parameter sweep")
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--quick", action="store_true", help="Run minimal test sweep")
-    parser.add_argument("--output_dir", type=str, default="results/field_sweep_dynamic")
+    parser.add_argument("--output_dir", type=str, default="results/field_sweep_dynamic_h32")
+    parser.add_argument("--n_workers", type=int, default=1,
+                        help="Total number of parallel workers (GPUs)")
+    parser.add_argument("--worker_id", type=int, default=0,
+                        help="This worker's index (0-based)")
     args = parser.parse_args()
 
     device = args.device if torch.cuda.is_available() else "cpu"
     os.makedirs(args.output_dir, exist_ok=True)
 
-    configs = get_sweep_configs(quick=args.quick)
-    print(f"Total experiments: {len(configs)}")
+    all_configs = get_sweep_configs(quick=args.quick)
+
+    # split configs across workers
+    worker_configs = all_configs[args.worker_id::args.n_workers]
+    # original indices for logging
+    worker_indices = list(range(args.worker_id, len(all_configs), args.n_workers))
+
+    print(f"Total experiments: {len(all_configs)}")
+    print(f"Worker {args.worker_id}/{args.n_workers}: running {len(worker_configs)} experiments")
     print(f"Device: {device}")
     print(f"Output: {args.output_dir}")
 
     all_results = []
-    for i, cfg in enumerate(configs):
-        tag = f"[{i+1}/{len(configs)}]"
+    for local_i, (global_i, cfg) in enumerate(zip(worker_indices, worker_configs)):
+        tag = f"[{local_i+1}/{len(worker_configs)} | global {global_i+1}/{len(all_configs)}]"
         print(f"\n{tag} {cfg.arch} | {cfg.field_name} | target={cfg.target} | "
               f"lr={cfg.lr} | layers={cfg.n_layers} | hidden={cfg.hidden_size} | "
               f"frames={cfg.n_frames}"
@@ -454,15 +471,15 @@ def main():
             all_results.append({"config": asdict(cfg), "error": str(e)})
 
         # save incrementally
-        if (i + 1) % 10 == 0 or i == len(configs) - 1:
+        if (local_i + 1) % 10 == 0 or local_i == len(worker_configs) - 1:
             np.savez_compressed(
-                os.path.join(args.output_dir, "sweep_results.npz"),
+                os.path.join(args.output_dir, f"sweep_results_worker{args.worker_id}.npz"),
                 results=json.dumps(all_results),
             )
 
-    out_path = os.path.join(args.output_dir, "sweep_results.npz")
+    out_path = os.path.join(args.output_dir, f"sweep_results_worker{args.worker_id}.npz")
     np.savez_compressed(out_path, results=json.dumps(all_results))
-    print(f"\nResults saved to {out_path}")
+    print(f"\nWorker {args.worker_id} results saved to {out_path}")
 
     n_converged = sum(1 for r in all_results if r.get("converged", False))
     print(f"\nSummary: {n_converged}/{len(all_results)} converged (rel_error < 0.05)")

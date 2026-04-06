@@ -87,6 +87,16 @@ class INRType(StrEnum):
 # Sub-config schemas for cell-gnn
 
 
+class FieldParamsConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore", protected_namespaces=())
+
+    center_0: list[float] = [0.5, 0.5, 0.5]
+    velocity: list[float] = [0.0, 0.0, 0.0]
+    amplitude: float = 1.0
+    sigma: float = 0.15
+    mu_chem: float = 0.5
+
+
 class SimulationConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", protected_namespaces=())
 
@@ -167,6 +177,7 @@ class SimulationConfig(BaseModel):
 
     non_discrete_level: float = 0
     noise_model_level: float = 0
+    field_params: Optional[FieldParamsConfig] = None
     integration: Integration = Integration.EULER
 
     state_type: StateType = StateType.DISCRETE

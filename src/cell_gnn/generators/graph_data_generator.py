@@ -394,7 +394,7 @@ def data_generate_cell(
     model, bc_pos, bc_dpos = choose_model(config=config, device=device)
 
     # Plot spring force profile for particle_spring_force_ode
-    if mc.cell_model_name in ("particle_spring_force_ode", "particle_spring_force_ode_static_field"):
+    if mc.cell_model_name in ("particle_spring_force_ode", "particle_spring_force_dynamic_field"):
         r_plot = torch.linspace(0, max_radius, 500, device=device)
         p = model.p.unsqueeze(0) if model.p.dim() == 1 else model.p
         fig, ax = plt.subplots(figsize=(8, 5))
@@ -451,8 +451,8 @@ def data_generate_cell(
 
     # optional writers for clean force and noise (particle_spring_force_ode)
     from cell_gnn.generators.particle_spring_force_ode import ParticleSpringForceODE
-    from cell_gnn.generators.particle_spring_force_ode_static_field import ParticleSpringForceODEStaticField
-    save_force_decomp = isinstance(model, (ParticleSpringForceODE, ParticleSpringForceODEStaticField))
+    from cell_gnn.generators.particle_spring_force_dynamic_field import ParticleSpringForceDynamicField
+    save_force_decomp = isinstance(model, (ParticleSpringForceODE, ParticleSpringForceDynamicField))
     if save_force_decomp:
         force_clean_writer = ZarrArrayWriter(
             path=f"graphs_data/{dataset_name}/force_clean_{run}",
@@ -527,7 +527,7 @@ def data_generate_cell(
             })
 
             # model prediction
-            y = model(x, edge_index)
+            y = model(x, edge_index, k=it)
 
         if sim.angular_sigma > 0:
             phi = (
@@ -571,13 +571,13 @@ def data_generate_cell(
         # cell update (Euler or RK4)
         has_angular_noise = sim.angular_sigma > 0 or sim.angular_bernoulli != [-1]
         if sim.integration == 'Runge-Kutta' and not has_angular_noise:
-            def _deriv_fn(s):
+            def _deriv_fn(s, _it=it):
                 ei = get_edges_with_cache(
                     pos=s.pos, bc_dpos=bc_dpos, cache=edge_cache,
                     r_cut=max_radius, r_skin=0.05,
                     min_radius=min_radius, block=2048,
                 )
-                return model(s, ei)
+                return model(s, ei, k=_it)
             x, _ = rk4_step(x, _deriv_fn, delta_t, mc.prediction, bc_pos)
         else:
             euler_step(x, y, delta_t, mc.prediction, bc_pos)
@@ -671,7 +671,7 @@ def data_generate_cell(
                     plt.tight_layout()
                     active_style.savefig(fig, f"graphs_data/{dataset_name}/Fig/Rot_{run}_Fig{it}.jpg")
 
-                elif (mc.cell_model_name in ("arbitrary_ode", "particle_spring_force_ode", "particle_spring_force_ode_static_field")) & (dimension == 3):
+                elif (mc.cell_model_name in ("arbitrary_ode", "particle_spring_force_ode", "particle_spring_force_dynamic_field")) & (dimension == 3):
                     from mpl_toolkits.mplot3d.art3d import Line3DCollection
                     from matplotlib.collections import LineCollection as LC
 

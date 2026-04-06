@@ -55,10 +55,24 @@ def choose_model(config=[], W=[], device=[]):
                 p = torch.tensor(p, device=device)
             model = sim_cls(aggr_type=aggr_type, p=p, clamp=config.training.clamp,
                             pred_limit=config.training.pred_limit, bc_dpos=bc_dpos, dimension=dimension)
-        case 'particle_spring_force_ode' | 'particle_spring_force_ode_static_field':
+        case 'particle_spring_force_ode':
             noise_model_level = config.simulation.noise_model_level if hasattr(config.simulation, 'noise_model_level') else 0
             model = sim_cls(aggr_type=aggr_type, p=p, bc_dpos=bc_dpos, dimension=dimension,
                             noise_model_level=noise_model_level)
+        case 'particle_spring_force_dynamic_field':
+            noise_model_level = config.simulation.noise_model_level if hasattr(config.simulation, 'noise_model_level') else 0
+            fp = config.simulation.field_params
+            field_params = {
+                'center_0': torch.tensor(fp.center_0, dtype=torch.float32, device=device),
+                'velocity': torch.tensor(fp.velocity, dtype=torch.float32, device=device),
+                'amplitude': fp.amplitude,
+                'sigma': fp.sigma,
+                'mu_chem': fp.mu_chem,
+                'delta_t': config.simulation.delta_t,
+                'periodic': config.simulation.boundary == 'periodic',
+            }
+            model = sim_cls(aggr_type=aggr_type, p=p, bc_dpos=bc_dpos, dimension=dimension,
+                            noise_model_level=noise_model_level, field_params=field_params)
         case _:
             raise ValueError(f'Unknown cell model: {cell_model_name}')
 

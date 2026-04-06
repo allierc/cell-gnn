@@ -9,17 +9,15 @@ from cell_gnn.graph_utils import remove_self_loops, scatter_aggregate
 from cell_gnn.models.registry import register_model
 
 
-@register_model("particle_spring_force_ode_static_field_siren")
+@register_model("particle_spring_force_dynamic_field_siren")
 class CellGNNSirenField(nn.Module):
-    """GNN for pair forces + SIREN for learning the static vector field.
+    """GNN for pair forces + SIREN for learning the dynamic vector field.
 
-    The GNN branch (lin_edge) learns pairwise interactions exactly like CellGNN.
-    The SIREN branch (siren_field) learns the mapping pos -> field_velocity.
+    d_pos = GNN_pair(edges) + SIREN(x, y, z, t)
 
-    Based on sweep results: SIREN with 3 layers, 256 hidden, omega=30, lr=1e-4
-    gives the best accuracy on smooth fields.
-
-    Total output: d_pos = GNN_pair(edges) + SIREN_field(pos)
+    The GNN branch (lin_edge) learns pairwise spring forces.
+    The SIREN branch learns (x, y, z, t) -> (vx, vy, vz), the chemotactic
+    velocity from the dynamic concentration field.
     """
 
     def __init__(self, config, device, aggr_type=None, bc_dpos=None, dimension=2):
@@ -75,14 +73,14 @@ class CellGNNSirenField(nn.Module):
             torch.tensor(np.ones((self.n_dataset, int(self.n_cells) + self.n_ghosts, self.embedding_dim)),
                          device=self.device, requires_grad=True, dtype=torch.float32))
 
-        # --- SIREN field branch: pos -> field velocity ---
+        # --- SIREN field branch: (x, y, z, t) -> (vx, vy, vz) ---
         n_layers_field = getattr(model_config, 'n_layers_field', 3)
-        hidden_dim_field = getattr(model_config, 'hidden_dim_field', 256)
+        hidden_dim_field = getattr(model_config, 'hidden_dim_field', 128)
         omega_field = getattr(model_config, 'omega_field', 30.0)
 
         self.siren_field = Siren(
-            in_features=self.dimension,
-            out_features=self.dimension,
+            in_features=self.dimension + 1,   # (x, y, z, t)
+            out_features=self.dimension,       # (vx, vy, vz)
             hidden_features=hidden_dim_field,
             hidden_layers=max(n_layers_field - 2, 1),
             outermost_linear=True,
@@ -139,8 +137,11 @@ class CellGNNSirenField(nn.Module):
         if self.update_type == 'mlp':
             out_pair = self.lin_phi(torch.cat((out_pair, embedding, d_pos), dim=-1))
 
-        # --- SIREN field branch ---
-        out_field = self.siren_field(pos)
+        # --- SIREN field branch: (x, y, z, t) -> chemotactic velocity ---
+        # k is (n_cells, 1) integer frame index; normalize to [0, 1]
+        t_norm = k.float() / self.n_frames
+        siren_input = torch.cat([pos, t_norm], dim=1)  # (n_cells, dim+1)
+        out_field = self.siren_field(siren_input)
 
         # --- combine ---
         out = out_pair + out_field
