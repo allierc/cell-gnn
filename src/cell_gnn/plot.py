@@ -282,6 +282,213 @@ def analyze_edge_function(rr=[], vizualize=False, config=None, model_MLP=[], mod
 #  plot_training — vectorized
 # --------------------------------------------------------------------------- #
 
+def plot_siren_field_fixed(model, config, log_dir, epoch, N, ynorm, device, k_frame=None):
+    """Plot the learned SIREN field vs ground truth at a SINGLE fixed time.
+
+    Companion to `plot_siren_field_slice`. Uses a fixed `k_frame` (default = n_frames/2)
+    so that flipping through `tmp_training/field_fixed/*.png` across checkpoints shows
+    convergence at a fixed reference point — easier to compare epoch-to-epoch progress
+    because the target doesn't move.
+    """
+    if not hasattr(model, 'siren_field'):
+        return
+
+    import os
+    style = default_style
+    sim = config.simulation
+    fp = sim.field_params
+    dimension = sim.dimension
+
+    if k_frame is None:
+        k_frame = sim.n_frames // 2
+
+    grid_n = 24
+    xs = torch.linspace(0.0, 1.0, grid_n, device=device)
+    ys = torch.linspace(0.0, 1.0, grid_n, device=device)
+    grid_x, grid_y = torch.meshgrid(xs, ys, indexing='xy')
+    z_slice = 0.5
+    if dimension == 3:
+        pos = torch.stack([
+            grid_x.reshape(-1),
+            grid_y.reshape(-1),
+            torch.full_like(grid_x.reshape(-1), z_slice),
+        ], dim=1)
+    else:
+        pos = torch.stack([grid_x.reshape(-1), grid_y.reshape(-1)], dim=1)
+    pos_np = to_numpy(pos)
+
+    # --- learned ---
+    with torch.no_grad():
+        k_tensor = torch.full((pos.shape[0], 1), float(k_frame), dtype=pos.dtype, device=device)
+        siren_input = torch.cat([pos, k_tensor / model.n_frames], dim=1)
+        v_learned = model.siren_field(siren_input) * float(ynorm)
+    v_learned_np = to_numpy(v_learned)
+
+    # --- true: mu_chem * grad C ---
+    center_0 = torch.tensor(fp.center_0, dtype=pos.dtype, device=device)
+    velocity = torch.tensor(fp.velocity, dtype=pos.dtype, device=device)
+    sigma_f = float(fp.sigma)
+    amplitude = float(fp.amplitude)
+    mu_chem = float(fp.mu_chem)
+    t_phys = float(k_frame) * sim.delta_t
+    center_t = center_0 + velocity * t_phys
+    diff = pos - center_t.unsqueeze(0)
+    if sim.boundary == 'periodic':
+        diff = diff - torch.round(diff)
+    r2 = (diff ** 2).sum(dim=1, keepdim=True)
+    C = amplitude * torch.exp(-r2 / (2.0 * sigma_f ** 2))
+    grad_C = -C * diff / (sigma_f ** 2)
+    v_true = mu_chem * grad_C
+    v_true_np = to_numpy(v_true)
+
+    # common arrow scale based on true magnitude — same across all checkpoints
+    common_scale = max(np.linalg.norm(v_true_np, axis=1).max() * 10.0, 1e-6)
+    cx, cy = float(center_t[0].item()), float(center_t[1].item())
+    if sim.boundary == 'periodic':
+        cx_w = cx - np.floor(cx); cy_w = cy - np.floor(cy)
+    else:
+        cx_w, cy_w = cx, cy
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5), facecolor=style.background)
+
+    # learned
+    ax = axes[0]
+    ax.quiver(pos_np[:, 0], pos_np[:, 1], v_learned_np[:, 0], v_learned_np[:, 1],
+              angles='xy', scale_units='xy', scale=common_scale,
+              color=style.foreground, width=0.004)
+    ax.plot(cx_w, cy_w, '*', markersize=15, color='red')
+    ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_aspect('equal')
+    ax.set_title(f'learned siren_field  (k={k_frame}, t={t_phys:.2f})', color=style.foreground)
+
+    # true
+    ax = axes[1]
+    ax.quiver(pos_np[:, 0], pos_np[:, 1], v_true_np[:, 0], v_true_np[:, 1],
+              angles='xy', scale_units='xy', scale=common_scale,
+              color=style.foreground, width=0.004)
+    ax.plot(cx_w, cy_w, '*', markersize=15, color='red')
+    ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_aspect('equal')
+    ax.set_title(f'true mu_chem*grad C  (mu={mu_chem})', color=style.foreground)
+
+    # error magnitude
+    ax = axes[2]
+    err = np.linalg.norm(v_learned_np - v_true_np, axis=1).reshape(grid_n, grid_n)
+    im = ax.imshow(err, origin='lower', extent=[0, 1, 0, 1], cmap='magma')
+    ax.set_aspect('equal')
+    ax.set_title(f'|learned - true|  (mean={err.mean():.4f})', color=style.foreground)
+    plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+    os.makedirs(f"./{log_dir}/tmp_training/field_fixed", exist_ok=True)
+    plt.tight_layout()
+    style.savefig(fig, f"./{log_dir}/tmp_training/field_fixed/{epoch}_{N}.png")
+    plt.close(fig)
+
+
+def plot_siren_field_slice(model, config, log_dir, epoch, N, ynorm, device, n_time_snapshots=4):
+    """Plot the learned SIREN field vs ground-truth chemotactic field on a z-slice.
+
+    For SIREN models that include a `siren_field` branch, sample the predicted velocity
+    field on a 2D grid (z=0.5) at multiple time snapshots, alongside the analytic ground
+    truth `mu_chem * grad C(x, t)`. Layout: 2 rows × n_time_snapshots cols.
+    Top row = learned, bottom row = true. Each column is a different time.
+    """
+    if not hasattr(model, 'siren_field'):
+        return
+
+    import os
+    style = default_style
+    sim = config.simulation
+    fp = sim.field_params
+    dimension = sim.dimension
+
+    grid_n = 24
+    xs = torch.linspace(0.0, 1.0, grid_n, device=device)
+    ys = torch.linspace(0.0, 1.0, grid_n, device=device)
+    grid_x, grid_y = torch.meshgrid(xs, ys, indexing='xy')
+    z_slice = 0.5
+    if dimension == 3:
+        pos = torch.stack([
+            grid_x.reshape(-1),
+            grid_y.reshape(-1),
+            torch.full_like(grid_x.reshape(-1), z_slice),
+        ], dim=1)
+    else:
+        pos = torch.stack([grid_x.reshape(-1), grid_y.reshape(-1)], dim=1)
+    pos_np = to_numpy(pos)
+
+    # Time snapshots evenly spread across the trajectory
+    k_frames = np.linspace(0, sim.n_frames - 1, n_time_snapshots).astype(int)
+
+    center_0 = torch.tensor(fp.center_0, dtype=pos.dtype, device=device)
+    velocity = torch.tensor(fp.velocity, dtype=pos.dtype, device=device)
+    sigma_f = float(fp.sigma)
+    amplitude = float(fp.amplitude)
+    mu_chem = float(fp.mu_chem)
+
+    fig, axes = plt.subplots(2, n_time_snapshots,
+                              figsize=(4 * n_time_snapshots, 8),
+                              facecolor=style.background)
+
+    # use a single common arrow scale across all panels (based on max true magnitude)
+    common_scale = None
+
+    for col, k_frame in enumerate(k_frames):
+        # --- learned ---
+        with torch.no_grad():
+            k_tensor = torch.full((pos.shape[0], 1), float(k_frame), dtype=pos.dtype, device=device)
+            siren_input = torch.cat([pos, k_tensor / model.n_frames], dim=1)
+            v_learned = model.siren_field(siren_input) * float(ynorm)
+        v_learned_np = to_numpy(v_learned)
+
+        # --- true ---
+        t_phys = float(k_frame) * sim.delta_t
+        center_t = center_0 + velocity * t_phys
+        diff = pos - center_t.unsqueeze(0)
+        if sim.boundary == 'periodic':
+            diff = diff - torch.round(diff)
+        r2 = (diff ** 2).sum(dim=1, keepdim=True)
+        C = amplitude * torch.exp(-r2 / (2.0 * sigma_f ** 2))
+        grad_C = -C * diff / (sigma_f ** 2)
+        v_true = mu_chem * grad_C
+        v_true_np = to_numpy(v_true)
+
+        if common_scale is None:
+            mag = np.linalg.norm(v_true_np, axis=1).max()
+            common_scale = max(mag * 10.0, 1e-6)  # quiver scale (smaller = longer arrows)
+
+        # learned (top row)
+        ax = axes[0, col]
+        ax.quiver(pos_np[:, 0], pos_np[:, 1], v_learned_np[:, 0], v_learned_np[:, 1],
+                  angles='xy', scale_units='xy', scale=common_scale,
+                  color=style.foreground, width=0.004)
+        cx, cy = float(center_t[0].item()), float(center_t[1].item())
+        # show wrapped center for periodic
+        if sim.boundary == 'periodic':
+            cx_w = cx - np.floor(cx); cy_w = cy - np.floor(cy)
+        else:
+            cx_w, cy_w = cx, cy
+        ax.plot(cx_w, cy_w, '*', markersize=12, color='red')
+        ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_aspect('equal')
+        ax.set_title(f'learned  k={k_frame}  t={t_phys:.2f}', color=style.foreground, fontsize=10)
+
+        # true (bottom row)
+        ax = axes[1, col]
+        ax.quiver(pos_np[:, 0], pos_np[:, 1], v_true_np[:, 0], v_true_np[:, 1],
+                  angles='xy', scale_units='xy', scale=common_scale,
+                  color=style.foreground, width=0.004)
+        ax.plot(cx_w, cy_w, '*', markersize=12, color='red')
+        ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_aspect('equal')
+        err = np.linalg.norm(v_learned_np - v_true_np, axis=1).mean()
+        ax.set_title(f'true  k={k_frame}  err={err:.4f}', color=style.foreground, fontsize=10)
+
+    axes[0, 0].set_ylabel('learned siren_field', color=style.foreground)
+    axes[1, 0].set_ylabel(f'true mu_chem*grad C  (mu={mu_chem})', color=style.foreground)
+
+    os.makedirs(f"./{log_dir}/tmp_training/field", exist_ok=True)
+    plt.tight_layout()
+    style.savefig(fig, f"./{log_dir}/tmp_training/field/{epoch}_{N}.png")
+    plt.close(fig)
+
+
 def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, n_cell_types, model, n_nodes, n_node_types, index_nodes, dataset_num, ynorm, cmap, axis, device):
     """Plot training diagnostics. Returns lin_edge R² mean or None if unavailable."""
 
@@ -561,6 +768,13 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
                 style.montage_ylabel(ax, r'learned $\mathrm{MLP}_1$')
                 plt.tight_layout()
                 style.savefig(fig, f"./{log_dir}/tmp_training/function/MLP1/function_{epoch}_{N}.png")
+
+    # --- SIREN field branch diagnostics (only for models that have one) ---
+    if hasattr(model, 'siren_field'):
+        # Fixed-time plot: same k every checkpoint → easy convergence comparison
+        plot_siren_field_fixed(model, config, log_dir, epoch, N, ynorm, device)
+        # Multi-time plot: 4 time snapshots → temporal sanity check
+        plot_siren_field_slice(model, config, log_dir, epoch, N, ynorm, device, n_time_snapshots=4)
 
     return lin_edge_r2
 
