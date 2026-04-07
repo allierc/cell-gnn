@@ -453,6 +453,18 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
         from cell_gnn.figure_style import default_style as fig_style
         fig = plt.figure(figsize=(12, 10), facecolor=fig_style.background)
 
+        #### Step 1: cluster the embedding space to assign a class id to each cell, compared against ground-truth type labels to compute accuracy
+        #### pipeline: UMAP (n_neighbors=100, min_dist=0.3, random_state=training.seed) reduces the embedding to 2D,
+        ####           DBSCAN (eps=0.3, min_samples=5) finds clusters in the projected space,
+        ####           Hungarian algorithm maps predicted cluster ids to ground-truth type ids (optimal label permutation),
+        ####           model_a_ is the embedding with each cluster collapsed to its median center (used for sparsification)
+        #### config parameters controlling this step and the downstream sparsification:
+        ####   training.seed                  — random seed for UMAP reproducibility
+        ####   training.sparsity              — Sparsity enum: 'none' skips Steps 2-4; 'replace_embedding' runs Step 2 only;
+        ####                                    'replace_embedding_function' runs Steps 2-4 (also retrains MLP1)
+        ####   training.sparsity_freq         — sparsification is applied every sparsity_freq epochs (default 5)
+        ####   training.fix_cluster_embedding — if True, freezes embedding after Step 2 (lr_embedding=1e-12 thereafter)
+        ####   training.cluster_method        — ClusterMethod enum used by EmbeddingCluster (kmeans variants or distance_plot)
         labels, n_clusters, new_labels, func_list, model_a_, accuracy = \
             plot_training_summary_panels(fig, log_dir, model, config, n_cells, n_cell_types,
                                          index_cells, type_list, ynorm, cmap,
@@ -461,18 +473,20 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
 
         if (replace_with_cluster) & (epoch % sparsity_freq == sparsity_freq - 1) & (
                 epoch < n_epochs - sparsity_freq):
-            # Constrain embedding domain
+            ##### Step 2: replace each cell's embedding vector with the median of its DBSCAN cluster,
+            #####          collapsing intra-cluster variance so all cells of the same type share one representation
             with torch.no_grad():
                 model.a[0] = model_a_.clone().detach()
             print(f'regul_embedding: replaced')
             logger.info(f'regul_embedding: replaced')
 
-            # Constrain function domain
             if tc.sparsity == 'replace_embedding_function':
 
                 logger.info(f'replace_embedding_function')
                 y_func_list = func_list * 0
 
+                #### Step 3: compute the target interaction function for each cell as the median MLP1 curve
+                ####         over all cells assigned to the same cluster — this defines the canonical function per type
                 fig_tmp, ax_tmp = fig_init()
                 for n in np.unique(new_labels):
                     pos = np.argwhere(new_labels == n)
@@ -486,6 +500,9 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
                 fig_tmp.tight_layout()
                 fig_style.savefig(fig_tmp, f"./{log_dir}/tmp_training/Fig_{epoch}_before training function.png")
 
+                ### Step 4: retrain MLP1 to match the cluster-median target functions
+                ###         embedding is frozen (lr_embedding=1e-12) so only the MLP weights are updated;
+                ###         20 sub-epochs fit lin_edge(embedding, r) -> y_func_list for all cells simultaneously
                 lr_embedding = 1E-12
                 optimizer, n_total_params = set_trainable_parameters(model, lr_embedding, lr)
                 rr = torch.tensor(np.linspace(0, max_radius, 1000)).to(device)
