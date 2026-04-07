@@ -22,7 +22,7 @@ simulation:
     velocity: [0.15, 0.0, 0.0]
     amplitude: 1.0
     sigma: 0.15
-    mu_chem: 0.5
+    mu_chem: 0.02
 
 graph_model:
   cell_model_name: "particle_spring_force_dynamic_field_siren"

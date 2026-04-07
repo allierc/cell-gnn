@@ -55,6 +55,7 @@ class CellGNNSirenField(nn.Module):
         self.remove_self = train_config.remove_self
         self.sigma = simulation_config.sigma
         self.n_ghosts = int(train_config.n_ghosts)
+        self.cell_of_interest = 0
 
         # --- GNN branch: pairwise interaction (same as CellGNN) ---
         self.input_size = self.dimension + 1 + self.embedding_dim
@@ -138,17 +139,25 @@ class CellGNNSirenField(nn.Module):
             out_pair = self.lin_phi(torch.cat((out_pair, embedding, d_pos), dim=-1))
 
         # --- SIREN field branch: (x, y, z, t) -> chemotactic velocity ---
-        # k is (n_cells, 1) integer frame index; normalize to [0, 1]
-        t_norm = k.float() / self.n_frames
+        # k can be a tensor (n_cells, 1) during training or a Python int during testing
+        if not torch.is_tensor(k):
+            k = torch.full((pos.shape[0], 1), float(k), dtype=pos.dtype, device=pos.device)
+        else:
+            k = k.to(pos.dtype)
+        t_norm = k / self.n_frames
         siren_input = torch.cat([pos, t_norm], dim=1)  # (n_cells, dim+1)
         out_field = self.siren_field(siren_input)
 
-        # --- combine ---
-        out = out_pair + out_field
-
+        # Un-rotate ONLY the GNN branch output (it was rotation-equivariant via rotated inputs).
+        # The SIREN branch took un-rotated `pos` as input, so its output is already in the
+        # original frame and must NOT be multiplied by R.T — doing so would corrupt it with
+        # a different random rotation every iteration and prevent convergence.
         if self.rotation_augmentation & self.training:
             d = self.dimension
-            out[:, :d] = out[:, :d] @ self.rotation_matrix.T
+            out_pair[:, :d] = out_pair[:, :d] @ self.rotation_matrix.T
+
+        # --- combine ---
+        out = out_pair + out_field
 
         return out
 

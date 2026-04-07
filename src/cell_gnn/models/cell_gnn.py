@@ -124,7 +124,7 @@ class CellGNN(nn.Module):
 
         self.sigma = simulation_config.sigma
         self.n_ghosts = int(train_config.n_ghosts)
-
+        self.cell_of_interest = 0
 
         # self.lin_edge = FusedMLP(in_dim=self.input_size, hidden_dim=self.hidden_dim, out_dim=self.output_size, n_hidden=self.n_layers, activation='ReLU', output_activation=None, device=self.device)
 

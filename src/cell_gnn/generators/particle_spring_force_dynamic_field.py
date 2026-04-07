@@ -47,7 +47,7 @@ def moving_gaussian_field(pos, t, field_params):
     return C, grad_C
 
 
-@register_simulator("particle_spring_force_dynamic_field")
+@register_simulator("particle_spring_force_dynamic_field", "particle_spring_force_dynamic_field_siren")
 class ParticleSpringForceDynamicField(nn.Module):
     """Overdamped cell dynamics with spring forces + chemotaxis from a moving Gaussian field.
 

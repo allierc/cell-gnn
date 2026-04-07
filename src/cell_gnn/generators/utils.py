@@ -59,7 +59,7 @@ def choose_model(config=[], W=[], device=[]):
             noise_model_level = config.simulation.noise_model_level if hasattr(config.simulation, 'noise_model_level') else 0
             model = sim_cls(aggr_type=aggr_type, p=p, bc_dpos=bc_dpos, dimension=dimension,
                             noise_model_level=noise_model_level)
-        case 'particle_spring_force_dynamic_field':
+        case 'particle_spring_force_dynamic_field' | 'particle_spring_force_dynamic_field_siren':
             noise_model_level = config.simulation.noise_model_level if hasattr(config.simulation, 'noise_model_level') else 0
             fp = config.simulation.field_params
             field_params = {

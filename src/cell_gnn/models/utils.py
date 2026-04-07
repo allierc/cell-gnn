@@ -110,7 +110,9 @@ def set_trainable_parameters(model=[], lr_embedding=[], lr=[], lr_update=[], lr_
     if lr_update == []:
         lr_update = lr
 
-    optimizer = torch.optim.Adam([model.a], lr=lr_embedding)
+    # Use fused Adam when parameters are on CUDA — avoids launching many small kernels
+    _use_fused = model.a.is_cuda
+    optimizer = torch.optim.Adam([model.a], lr=lr_embedding, fused=_use_fused)
     for name, parameter in model.named_parameters():
         if (parameter.requires_grad) & (name != 'a'):
             if (name == 'b') or ('lin_modulation' in name):

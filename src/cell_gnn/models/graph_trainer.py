@@ -106,26 +106,25 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
     n_runs = tc.n_runs
 
     log_dir, logger = create_log_dir(config, erase)
-    time.sleep(0.5)
     print('load data ...')
 
     x_ts = load_simulation_data(f'graphs_data/{dataset_name}/x_list_0', dimension)
     y_raw = load_raw_array(f'graphs_data/{dataset_name}/y_list_0')
+    # Pre-convert y_raw to GPU tensor once — avoids per-iteration torch.tensor(y_raw[k], device=device) sync
+    y_raw_gpu = torch.tensor(y_raw, dtype=torch.float32, device=device)
     n_cells_max = x_ts.n_cells
     n_ts_frames = x_ts.n_frames
 
     # compute normalization from sampled frames
     x = x_ts.frame(0).to_packed().to(device)
-    y = torch.tensor(y_raw[0], dtype=torch.float32, device=device)
-    time.sleep(0.5)
+    y = y_raw_gpu[0]
     for k in trange(n_ts_frames - 5, ncols=100):
         if (k % 10 == 0) | (n_frames < 1000):
             try:
                 x = torch.cat((x, x_ts.frame(k).to_packed().to(device)), 0)
             except:
                 print(f'error in frame {k}')
-            y = torch.cat((y, torch.tensor(y_raw[k], dtype=torch.float32, device=device)), 0)
-    time.sleep(0.5)
+            y = torch.cat((y, y_raw_gpu[k]), 0)
     if torch.isnan(x).any() | torch.isnan(y).any():
         print('Pb isnan')
     vnorm = norm_velocity(x, dimension, device)
@@ -133,7 +132,6 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
 
     torch.save(vnorm, os.path.join(log_dir, 'vnorm.pt'))
     torch.save(ynorm, os.path.join(log_dir, 'ynorm.pt'))
-    time.sleep(0.5)
     print(f'N cells: {n_cells}')
     logger.info(f'N cells: {n_cells}')
     print(f'vnorm: {to_numpy(vnorm)}, ynorm: {to_numpy(ynorm)}')
@@ -194,13 +192,34 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
                                 hidden_layers=mc.n_layers_nnr, outermost_linear=True, device=device,
                                 first_omega_0=omega, hidden_omega_0=omega)
         model_f.to(device=device)
-        optimizer_f = torch.optim.Adam(lr=tc.learning_rate_nnr, params=model_f.parameters())
+        optimizer_f = torch.optim.Adam(lr=tc.learning_rate_nnr, params=model_f.parameters(), fused=True)
         model_f.train()
     else:
         has_field = False
 
     print("start training cells ...")
     check_and_clear_memory(device=device, iteration_number=0, every_n_iterations=1, memory_percentage_threshold=0.6)
+
+    # Try torch.compile for faster execution (falls back to eager if Triton/CUDA headers unavailable)
+    _compile_ok = False
+    try:
+        model = torch.compile(model, mode='reduce-overhead')
+        # Dry-run a tiny forward pass to trigger Triton compilation and catch failures early
+        with torch.no_grad():
+            _test_state = x_ts.frame(0).to(device)
+            _test_edges = edges_radius_blockwise(_test_state.pos, bc_dpos, min_radius, max_radius, block=4096)
+            _test_id = torch.zeros((_test_state.n_cells, 1), dtype=torch.int, device=device)
+            model(_test_state, _test_edges, data_id=_test_id, training=False, has_field=False)
+        if has_field:
+            model_f = torch.compile(model_f, mode='reduce-overhead')
+        _compile_ok = True
+        print('torch.compile enabled (reduce-overhead)')
+    except Exception as e:
+        # Unwrap compiled model back to eager
+        model = model._orig_mod if hasattr(model, '_orig_mod') else model
+        if has_field and hasattr(model_f, '_orig_mod'):
+            model_f = model_f._orig_mod
+        print(f'torch.compile failed, continuing in eager mode: {e}')
 
     list_loss = []
     loss_dict = {'loss': []}
@@ -213,7 +232,6 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
 
     last_lin_edge_r2 = None
     train_start = time.time()
-    time.sleep(1)
 
     # === LLM-MODIFIABLE: TRAINING LOOP START ===
     # Main training loop. Suggested changes: loss function, gradient clipping,
@@ -241,15 +259,14 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
         regularizer.set_epoch(epoch)
         regularizer.plot_frequency = max(1, plot_frequency)
 
-        time.sleep(1)
-        total_loss = 0
-        total_loss_regul = 0
+        _total_loss_gpu = torch.zeros((), device=device)
+        _total_regul_gpu = torch.zeros((), device=device)
 
         pbar = trange(Niter, ncols=100)
         for N in pbar:
 
             if has_field:
-                optimizer_f.zero_grad()
+                optimizer_f.zero_grad(set_to_none=True)
 
             regularizer.reset_iteration()
             recurrent_active = recursive_loop > 0 and (not tc.recursive_training or epoch >= tc.recursive_training_start_epoch)
@@ -272,7 +289,9 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
                 if batch_ratio < 1:
                     ids = np.random.permutation(n_cells_b)[:int(n_cells_b * batch_ratio)]
                     ids = np.sort(ids)
-                    mask = torch.isin(edges[1, :], torch.tensor(ids, device=device))
+                    # Use torch tensor directly on GPU — avoid torch.tensor() inside loop
+                    ids_gpu = torch.as_tensor(ids, device=device)
+                    mask = torch.isin(edges[1, :], ids_gpu)
                     edges = edges[:, mask]
 
                 states_batch.append(x_state)
@@ -281,20 +300,21 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
                 if recurrent_active:
                     y = x_ts.frame(k + recursive_loop).pos.to(device).clone().detach()
                 elif time_step == 1:
-                    y = torch.tensor(y_raw[k], dtype=torch.float32, device=device).clone().detach() / ynorm
+                    # Use pre-converted GPU tensor — no CPU→GPU sync
+                    y = y_raw_gpu[k].clone().detach() / ynorm
                 elif time_step > 1:
                     y = x_ts.frame(k + time_step).pos.to(device).clone().detach()
 
                 if tc.shared_embedding:
                     run = 1
                 if batch == 0:
-                    data_id = torch.ones((y.shape[0], 1), dtype=torch.int) * run
+                    data_id = torch.ones((y.shape[0], 1), dtype=torch.int, device=device) * run
                     y_batch = y
                     k_batch = torch.ones((n_cells_b, 1), dtype=torch.int, device=device) * k
                     if batch_ratio < 1:
                         ids_batch = ids
                 else:
-                    data_id = torch.cat((data_id, torch.ones((y.shape[0], 1), dtype=torch.int) * run), dim=0)
+                    data_id = torch.cat((data_id, torch.ones((y.shape[0], 1), dtype=torch.int, device=device) * run), dim=0)
                     y_batch = torch.cat((y_batch, y), dim=0)
                     k_batch = torch.cat((k_batch, torch.ones((n_cells_b, 1), dtype=torch.int, device=device) * k), dim=0)
                     if batch_ratio < 1:
@@ -303,7 +323,7 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
                 ids_index += n_cells_b
 
             batch_state, batch_edges = CellState.collate(states_batch, edges_batch)
-            optimizer.zero_grad()
+            optimizer.zero_grad(set_to_none=True)
 
             pred = model(batch_state, batch_edges, data_id=data_id, training=True, k=k_batch, has_field=has_field)
 
@@ -370,11 +390,16 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
             if has_field:
                 optimizer_f.step()
 
-            total_loss += loss.item()
-            total_loss_regul += regularizer.get_iteration_total()
+            # GPU accumulator — no CPU sync per iteration
+            _total_loss_gpu += loss.detach()
+            _total_regul_gpu += regularizer.get_iteration_total()
+
+            regularizer.finalize_iteration()
 
             if N % plot_frequency == 0:
-                avg_loss = total_loss / (N + 1) / n_cells
+                # Single .item() sync per plot_frequency iterations
+                _current_loss = loss.item()
+                avg_loss = _total_loss_gpu.item() / (N + 1) / n_cells
                 postfix = f'loss={avg_loss:.6f}'
                 if last_lin_edge_r2 is not None:
                     c = r2_color(last_lin_edge_r2)
@@ -382,10 +407,7 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
                 pbar.set_postfix_str(postfix)
                 logger.info(f'Epoch {epoch}  iter {N + 1}  avg loss: {avg_loss:.6f}')
 
-            regularizer.finalize_iteration()
-
-            if (N % plot_frequency == 0):
-                loss_dict['loss'].append(loss.item() / n_cells)
+                loss_dict['loss'].append(_current_loss / n_cells)
                 plot_loss_components(loss_dict, regularizer.get_history(), log_dir, epoch=epoch, Niter=Niter)
                 lin_edge_r2 = plot_training(config=config, pred=pred, gt=y_batch, log_dir=log_dir,
                               epoch=epoch, N=N, x=x_plot, model=model, n_nodes=0, n_node_types=0, index_nodes=0,
@@ -395,7 +417,7 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
                 if lin_edge_r2 is not None:
                     last_lin_edge_r2 = lin_edge_r2
                     with open(metrics_log_path, 'a') as f:
-                        f.write(f'{epoch},{N},{lin_edge_r2:.6f},{loss.item() / n_cells:.6f}\n')
+                        f.write(f'{epoch},{N},{lin_edge_r2:.6f},{_current_loss / n_cells:.6f}\n')
                 torch.save({'model_state_dict': model.state_dict(), 'optimizer_state_dict': optimizer.state_dict()},
                            os.path.join(log_dir, 'models', f'best_model_with_{n_runs - 1}_graphs_{epoch}_{N}.pt'))
                 if has_field:
@@ -411,6 +433,9 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
                     'optimizer_state_dict': optimizer.state_dict()},
                    os.path.join(log_dir, 'models', f'best_model_with_{n_runs - 1}_graphs_{epoch}.pt'))
 
+        # Single sync at epoch end to get accumulated loss values
+        total_loss = _total_loss_gpu.item()
+        total_loss_regul = _total_regul_gpu.item()
         r2_str = ''
         if last_lin_edge_r2 is not None:
             c = r2_color(last_lin_edge_r2)
@@ -1307,10 +1332,10 @@ def data_train_cell_field(config, erase, best_model, device, log_file=None):
     log_dir, logger = create_log_dir(config, erase)
     print(f'Graph files N: {n_runs}')
     logger.info(f'Graph files N: {n_runs}')
-    time.sleep(0.5)
 
     x_ts = load_simulation_data(f'graphs_data/{dataset_name}/x_list_0', dimension)
     y_raw_np = load_raw_array(f'graphs_data/{dataset_name}/y_list_0')
+    # Pre-convert to GPU tensor once — avoids repeated CPU→GPU sync
     y_raw = torch.tensor(y_raw_np, dtype=torch.float32, device=device)
     n_cells_max = x_ts.n_cells
 
@@ -1321,7 +1346,6 @@ def data_train_cell_field(config, erase, best_model, device, log_file=None):
 
     x = x_ts.frame(0).to_packed().to(device)
     y = y_raw[0].clone().detach()
-    time.sleep(0.5)
     for k in trange(n_frames - 5, ncols=100):
         if (k % 10 == 0) | (n_frames < 1000):
             try:
@@ -1329,20 +1353,17 @@ def data_train_cell_field(config, erase, best_model, device, log_file=None):
             except:
                 print(f'error in frame {k}')
             y = torch.cat((y, y_raw[k].clone().detach()), 0)
-    time.sleep(0.5)
     if torch.isnan(x).any() | torch.isnan(y).any():
         print('Pb isnan')
     vnorm = norm_velocity(x, dimension, device)
     ynorm = norm_acceleration(y, device)
     torch.save(vnorm, os.path.join(log_dir, 'vnorm.pt'))
     torch.save(ynorm, os.path.join(log_dir, 'ynorm.pt'))
-    time.sleep(0.5)
     print(f'N cells: {n_cells}')
     logger.info(f'N cells: {n_cells}')
     print(f'vnorm: {to_numpy(vnorm)}, ynorm: {to_numpy(ynorm)}')
     logger.info(f'vnorm ynorm: {to_numpy(vnorm)} {to_numpy(ynorm)}')
 
-    time.sleep(0.5)
     mesh_ts = load_field_data(f'graphs_data/{dataset_name}/x_mesh_list_0', dimension)
     y_mesh_raw_np = load_raw_array(f'graphs_data/{dataset_name}/y_mesh_list_0')
     y_mesh_raw = torch.tensor(y_mesh_raw_np, dtype=torch.float32, device=device)
@@ -1353,7 +1374,6 @@ def data_train_cell_field(config, erase, best_model, device, log_file=None):
     torch.save(hnorm, os.path.join(log_dir, 'hnorm.pt'))
     print(f'hnorm: {to_numpy(hnorm)}')
     logger.info(f'hnorm: {to_numpy(hnorm)}')
-    time.sleep(0.5)
     mesh_data = torch.load(f'graphs_data/{dataset_name}/mesh_data_0.pt', map_location=device, weights_only=False)
     mask_mesh = mesh_data['mask']
     mask_mesh = mask_mesh.repeat(batch_size, 1)
@@ -1411,38 +1431,56 @@ def data_train_cell_field(config, erase, best_model, device, log_file=None):
                                 first_omega_0=80, hidden_omega_0=80.)
         model_f.to(device=device)
         model_f.train()
-        optimizer_f = torch.optim.Adam(lr=1e-5, params=model_f.parameters())
+        optimizer_f = torch.optim.Adam(lr=1e-5, params=model_f.parameters(), fused=True)
 
     print("start training ...")
     print(f'{n_frames * data_augmentation_loop // batch_size} iterations per epoch')
     logger.info(f'{n_frames * data_augmentation_loop // batch_size} iterations per epoch')
 
+    # Try torch.compile for faster execution (falls back to eager if Triton/CUDA headers unavailable)
+    try:
+        model = torch.compile(model, mode='reduce-overhead')
+        # Dry-run to trigger Triton compilation and catch failures early
+        with torch.no_grad():
+            _test_x = x_ts.frame(0).to_packed().to(device)
+            _test_state = CellState.from_packed(_test_x, dimension)
+            _test_edges = edge_p_p_list[0]
+            model(_test_state, _test_edges, data_id=0, training=False, has_field=False)
+        if has_siren:
+            model_f = torch.compile(model_f, mode='reduce-overhead')
+        print('torch.compile enabled (reduce-overhead)')
+    except Exception as e:
+        model = model._orig_mod if hasattr(model, '_orig_mod') else model
+        if has_siren and hasattr(model_f, '_orig_mod'):
+            model_f = model_f._orig_mod
+        print(f'torch.compile failed, continuing in eager mode: {e}')
+
     list_loss = []
     loss_dict = {'loss': []}
     regularizer = LossRegularizer(tc, mc, sim, n_cells, plot_frequency=1)
 
-    time.sleep(1)
+    # Precompute f_p_mask for max batch size — vectorized, no Python loop
+    _max_batch_size = target_batch_size
+    _block_size = n_nodes + n_cells
+    _f_p_mask_cache = {}
 
     for epoch in range(n_epochs + 1):
 
         batch_size = get_batch_size(epoch)
         regularizer.set_epoch(epoch)
 
-        f_p_mask = []
-        for k in range(batch_size):
-            if k == 0:
-                f_p_mask = np.zeros((n_nodes, 1))
-                f_p_mask = np.concatenate((f_p_mask, np.ones((n_cells, 1))), axis=0)
-            else:
-                f_p_mask = np.concatenate((f_p_mask, np.zeros((n_nodes, 1))), axis=0)
-                f_p_mask = np.concatenate((f_p_mask, np.ones((n_cells, 1))), axis=0)
-        f_p_mask = np.argwhere(f_p_mask == 1)
-        f_p_mask = f_p_mask[:, 0]
+        # Use cached f_p_mask or compute vectorized version
+        if batch_size not in _f_p_mask_cache:
+            # Vectorized: cell indices within each (n_nodes + n_cells) block
+            block_offsets = np.arange(batch_size) * _block_size
+            cell_offsets = np.arange(n_nodes, _block_size)
+            _f_p_mask_cache[batch_size] = (block_offsets[:, None] + cell_offsets[None, :]).ravel()
+        f_p_mask = _f_p_mask_cache[batch_size]
 
         logger.info(f'batch_size: {batch_size}')
 
-        total_loss = 0
-        total_loss_regul = 0
+        _total_loss_gpu = torch.zeros((), device=device)
+        _total_regul_gpu = torch.zeros((), device=device)
         Niter = n_frames * data_augmentation_loop // batch_size
         plot_frequency = int(Niter // 10)
         regularizer.plot_frequency = max(1, plot_frequency)
@@ -1506,10 +1544,10 @@ def data_train_cell_field(config, erase, best_model, device, log_file=None):
             batch_f_p = collate_graph_batch(dataset_batch_f_p)
 
             regularizer.reset_iteration()
-            optimizer.zero_grad()
+            optimizer.zero_grad(set_to_none=True)
 
             if has_siren:
-                optimizer_f.zero_grad()
+                optimizer_f.zero_grad(set_to_none=True)
             batch_state = CellState.from_packed(batch_f_p.x, dimension)
             pred_f_p = model(batch_state, batch_f_p.edge_index, data_id=0, training=True, phi=phi, has_field=True)
             batch_state = CellState.from_packed(batch_p_p.x, dimension)
@@ -1525,18 +1563,20 @@ def data_train_cell_field(config, erase, best_model, device, log_file=None):
             optimizer.step()
             if has_siren:
                 optimizer_f.step()
-            total_loss += loss.item()
-            total_loss_regul += regularizer.get_iteration_total()
+            # GPU accumulator — no CPU sync per iteration
+            _total_loss_gpu += loss.detach()
+            _total_regul_gpu += regularizer.get_iteration_total()
+
+            regularizer.finalize_iteration()
 
             if (N + 1) % 1000 == 0:
-                avg_loss = total_loss / (N + 1) / n_cells
+                # Single .item() sync per 1000 iterations
+                avg_loss = _total_loss_gpu.item() / (N + 1) / n_cells
                 pbar.set_postfix(loss=f'{avg_loss:.6f}')
                 logger.info(f'Epoch {epoch}  iter {N + 1}  avg loss: {avg_loss:.6f}')
 
             if (N % plot_frequency == 0) or (N == 0):
-                loss_dict['loss'].append(loss.item() / n_cells)
-
-            regularizer.finalize_iteration()
+                loss_dict['loss'].append(loss.detach().item() / n_cells)
 
             visualize_embedding = True
             if visualize_embedding & (((epoch < 30) & (N % plot_frequency == 0)) | (N == 0)):
@@ -1564,6 +1604,9 @@ def data_train_cell_field(config, erase, best_model, device, log_file=None):
                                 'optimizer_state_dict': optimizer_f.state_dict()},
                                os.path.join(log_dir, 'models', f'best_model_f_with_{n_runs - 1}_graphs_{epoch}_{N}.pt'))
 
+        # Single sync at epoch end
+        total_loss = _total_loss_gpu.item()
+        total_loss_regul = _total_regul_gpu.item()
         print("Epoch {}. Loss: {:.6f}  Regul: {:.6f}".format(epoch, total_loss / n_cells, total_loss_regul / n_cells))
         logger.info("Epoch {}. Loss: {:.6f}  Regul: {:.6f}".format(epoch, total_loss / n_cells, total_loss_regul / n_cells))
         torch.save({'model_state_dict': model.state_dict(),
