@@ -1,3 +1,4 @@
+# add learned field plots at fixed time
 description: "3D overdamped cells with spring forces + moving Gaussian field (GNN + SIREN)"
 dataset: "dicty_spring_force_rk4_dynamic_field_siren_v3"
 

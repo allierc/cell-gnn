@@ -1,6 +1,6 @@
-# add learned field plots at ixed and multiple time snapshots for all models, not just the SIREN ones
+# add moving embedding trick increase epoch 20
 description: "3D overdamped cells with spring forces + moving Gaussian field (GNN + SIREN)"
-dataset: "dicty_spring_force_rk4_dynamic_field_siren_v4"
+dataset: "dicty_spring_force_rk4_dynamic_field_siren_v6"
 
 simulation:
   dimension: 3
@@ -61,10 +61,18 @@ inr:
 training:
   n_runs: 1
   device: "auto"
-  n_epochs: 4
-  batch_size: 8
+  n_epochs: 20
+  batch_size: 4
   small_init_batch_size: False
-  sparsity: "none"
+  # --- Embedding clustering + function retraining (sparsification) ---
+  # Periodically clusters cell embeddings, replaces each embedding with its cluster median
+  # (Step 2), computes a per-cluster median target function (Step 3), then retrains MLP1
+  # to match those targets (Step 4). See graph_trainer.py for the full pipeline.
+  sparsity: "replace_embedding_function"  # 'none' disables; 'replace_embedding' runs Step 2 only;
+                                          # 'replace_embedding_function' runs Steps 2-4
+  sparsity_freq: 1                        # apply sparsification every N epochs (fires at epochs 0,1,2; epoch 3 is cool-down)
+  cluster_method: "distance_plot"         # clustering algorithm used by EmbeddingCluster
+  fix_cluster_embedding: True             # freeze embedding (lr_embedding=1e-12) after first sparsification
   rotation_augmentation: True
   data_augmentation_loop: 20
   learning_rate_start: 1.0E-4

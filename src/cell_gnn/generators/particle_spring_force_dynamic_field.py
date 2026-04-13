@@ -7,72 +7,83 @@ from cell_gnn.graph_utils import remove_self_loops, scatter_aggregate
 from cell_gnn.models.registry import register_simulator
 
 
-def moving_gaussian_field(pos, t, field_params):
-    """Evaluate a moving Gaussian chemical field and its gradient at particle positions.
+def single_gaussian_field(pos, t, field_params):
+    """Single moving Gaussian chemical field.
 
-    The Gaussian center moves along a prescribed trajectory:
-        center(t) = center_0 + velocity * t
-
-    Field value:
-        C(x, t) = amplitude * exp(-|x - center(t)|^2 / (2 * sigma^2))
-
-    Gradient:
-        grad C = -C(x,t) * (x - center(t)) / sigma^2
-
-    Args:
-        pos:          (N, dim) particle positions
-        t:            scalar, current time (frame * delta_t)
-        field_params: dict with keys:
-            center_0:   (dim,) initial center position
-            velocity:   (dim,) center velocity
-            amplitude:  scalar, peak concentration
-            sigma:      scalar, Gaussian width
-
-    Returns:
-        field_value:    (N, 1) chemical concentration at each particle
-        field_gradient: (N, dim) gradient of concentration at each particle
+    C(x, t) = amplitude * exp(-|x - c(t)|^2 / (2*sigma^2))
+    c(t)    = center_0 + velocity * t
+    grad C  = -C * (x - c(t)) / sigma^2
     """
     center = field_params['center_0'] + field_params['velocity'] * t  # (dim,)
-    diff = pos - center.unsqueeze(0)  # (N, dim)
+    diff = pos - center.unsqueeze(0)                                  # (N, dim)
 
-    # periodic boundary: wrap diff to [-0.5, 0.5] if using periodic BC
     if field_params.get('periodic', False):
         diff = diff - torch.round(diff)
 
-    dist_sq = (diff ** 2).sum(dim=1, keepdim=True)  # (N, 1)
+    dist_sq = (diff ** 2).sum(dim=1, keepdim=True)                    # (N, 1)
     sigma = field_params['sigma']
     C = field_params['amplitude'] * torch.exp(-dist_sq / (2 * sigma ** 2))  # (N, 1)
-    grad_C = -C * diff / (sigma ** 2)  # (N, dim)
-
+    grad_C = -C * diff / (sigma ** 2)                                 # (N, dim)
     return C, grad_C
+
+
+def multi_gaussian_field(pos, t, field_params):
+    """Sum of S moving Gaussian chemical sources. All sources share the same
+    scalar amplitude and sigma — only their centers (and velocities) differ.
+
+    C(x, t) = amplitude * sum_s exp(-|x - c_s(t)|^2 / (2*sigma^2))
+    c_s(t)  = center_0[s] + velocity[s] * t
+    grad C  = sum_s -C_s * (x - c_s(t)) / sigma^2
+    """
+    centers = field_params['center_0'] + field_params['velocity'] * t  # (S, dim)
+    amplitude = field_params['amplitude']                              # scalar
+    sigma = field_params['sigma']                                      # scalar
+
+    diff = pos.unsqueeze(1) - centers.unsqueeze(0)                     # (N, S, dim)
+    if field_params.get('periodic', False):
+        diff = diff - torch.round(diff)
+
+    dist_sq = (diff ** 2).sum(dim=-1)                                  # (N, S)
+    C_s = amplitude * torch.exp(-dist_sq / (2.0 * sigma ** 2))         # (N, S)
+
+    field_value = C_s.sum(dim=1, keepdim=True)                         # (N, 1)
+    field_gradient = (-C_s.unsqueeze(-1) * diff / (sigma ** 2)).sum(dim=1)
+    return field_value, field_gradient
+
+
+def moving_gaussian_field(pos, t, field_params):
+    """Dispatch entry point: picks single or multi based on ``field_params['field_type']``.
+
+    Defaults to 'single' when unspecified (back-compatible with pre-v7 configs).
+    """
+    field_type = field_params.get('field_type', 'single')
+    if field_type == 'multi':
+        return multi_gaussian_field(pos, t, field_params)
+    return single_gaussian_field(pos, t, field_params)
 
 
 @register_simulator("particle_spring_force_dynamic_field", "particle_spring_force_dynamic_field_siren")
 class ParticleSpringForceDynamicField(nn.Module):
-    """Overdamped cell dynamics with spring forces + chemotaxis from a moving Gaussian field.
+    """Overdamped cell dynamics with spring forces + chemotaxis from a moving chemical field.
 
-    Total force on cell i:
-        F_i = sum_j F_spring(i,j) + mu_chem * grad C(x_i, t) + noise
+    Chemical field is either a single moving Gaussian or a sum of multiple moving Gaussians
+    that share the same amplitude/sigma. Selected via ``field_params['field_type']``:
 
-    Spring force law (same as ParticleSpringForceODE):
-        F_rep = k_rep * relu(r0 - r) * rhat
-        g_on  = sigmoid((r - r0) / delta)
-        g_off = sigmoid(-(r - r_on) / delta)
-        F_adh = -kadh * g_on * g_off * (r - r0) * rhat
+        field_type: 'single'   (default — back-compatible)
+            center_0:  (dim,) initial center
+            velocity:  (dim,) drift velocity
+            amplitude: scalar peak
+            sigma:     scalar Gaussian width
+            mu_chem:   scalar coupling
 
-    Chemotaxis:
-        F_chem = mu_chem * grad C(x_i, t)
-        where C is a moving Gaussian: C(x,t) = A * exp(-|x - center(t)|^2 / (2*sigma^2))
+        field_type: 'multi'
+            center_0:  (S, dim) per-source initial centers
+            velocity:  (S, dim) per-source drift velocities
+            amplitude: scalar peak   (same for all S sources)
+            sigma:     scalar width  (same for all S sources)
+            mu_chem:   scalar coupling
 
-    Cell parameters p = (k_rep, r0, kadh, r_on, delta, mu_f):
-        same as ParticleSpringForceODE
-
-    Field parameters (separate from cell params):
-        center_0:   initial Gaussian center
-        velocity:   center drift velocity
-        amplitude:  peak concentration
-        sigma:      Gaussian width
-        mu_chem:    chemotactic coupling strength
+    Cell parameters p = (k_rep, r0, kadh, r_on, delta, mu_f): same as ParticleSpringForceODE.
     """
 
     def __init__(self, aggr_type=[], p=[], bc_dpos=[], dimension=3,
@@ -101,11 +112,17 @@ class ParticleSpringForceDynamicField(nn.Module):
 
         # chemotaxis from dynamic field
         t = k * self.field_params.get('delta_t', 1.0)
+
+        # lazily move tensor field params to the right device
+        for key in ('center_0', 'velocity'):
+            v = self.field_params.get(key, None)
+            if torch.is_tensor(v) and v.device != state.pos.device:
+                self.field_params[key] = v.to(state.pos.device)
+
         field_value, field_gradient = moving_gaussian_field(state.pos, t, self.field_params)
-        mu_chem = self.field_params.get('mu_chem', 0.5)
+        mu_chem = self.field_params['mu_chem']
         d_pos = d_pos + mu_chem * field_gradient
 
-        # store field value on state so it can be saved / used downstream
         state.field = field_value
 
         self.last_clean = d_pos.clone()
@@ -134,16 +151,12 @@ class ParticleSpringForceDynamicField(nn.Module):
 
         delta_safe = torch.clamp(delta, min=1e-8)
 
-        # Repulsion: linear spring for r < r0
         F_rep = k_rep * torch.relu(r0 - r)
-
-        # Adhesion: sigmoid-gated attractive force
         g_on = torch.sigmoid((r - r0) / delta_safe)
         g_off = torch.sigmoid(-(r - r_on) / delta_safe)
         F_adh = -kadh * g_on * g_off * (r - r0)
 
         F_total = -mu_f[:, None] * (F_rep + F_adh)[:, None] * rhat
-
         return F_total
 
     def psi(self, r, p):

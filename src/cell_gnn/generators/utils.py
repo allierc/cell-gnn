@@ -62,14 +62,36 @@ def choose_model(config=[], W=[], device=[]):
         case 'particle_spring_force_dynamic_field' | 'particle_spring_force_dynamic_field_siren':
             noise_model_level = config.simulation.noise_model_level if hasattr(config.simulation, 'noise_model_level') else 0
             fp = config.simulation.field_params
+            field_type = getattr(fp, 'field_type', None) or 'single'
+            # Single mode: center_0/velocity are (dim,).
+            # Multi mode:  center_0/velocity are (S, dim).
+            # amplitude, sigma, mu_chem are scalars in both modes (all S blobs share them).
             field_params = {
-                'center_0': torch.tensor(fp.center_0, dtype=torch.float32, device=device),
-                'velocity': torch.tensor(fp.velocity, dtype=torch.float32, device=device),
-                'amplitude': fp.amplitude,
-                'sigma': fp.sigma,
-                'mu_chem': fp.mu_chem,
-                'delta_t': config.simulation.delta_t,
-                'periodic': config.simulation.boundary == 'periodic',
+                'field_type': field_type,
+                'center_0':   torch.tensor(fp.center_0, dtype=torch.float32, device=device),
+                'velocity':   torch.tensor(fp.velocity, dtype=torch.float32, device=device),
+                'amplitude':  fp.amplitude,
+                'sigma':      fp.sigma,
+                'mu_chem':    fp.mu_chem,
+                'delta_t':    config.simulation.delta_t,
+                'periodic':   config.simulation.boundary == 'periodic',
+            }
+            model = sim_cls(aggr_type=aggr_type, p=p, bc_dpos=bc_dpos, dimension=dimension,
+                            noise_model_level=noise_model_level, field_params=field_params)
+        case 'particle_spring_force_diffusion_field' | 'particle_spring_force_diffusion_field_siren':
+            noise_model_level = config.simulation.noise_model_level if hasattr(config.simulation, 'noise_model_level') else 0
+            fp = config.simulation.field_params
+            field_params = {
+                'center_0':        torch.tensor(fp.center_0, dtype=torch.float32, device=device),
+                'amplitude':       fp.amplitude,
+                'sigma':           fp.sigma,
+                'mu_chem':         fp.mu_chem,
+                'diffusion_coeff': fp.diffusion_coeff,
+                'lambda_decay':    fp.lambda_decay,
+                'grid_resolution': fp.grid_resolution,
+                'source_strength': getattr(fp, 'source_strength', 0.0),
+                'delta_t':         config.simulation.delta_t,
+                'periodic':        config.simulation.boundary == 'periodic',
             }
             model = sim_cls(aggr_type=aggr_type, p=p, bc_dpos=bc_dpos, dimension=dimension,
                             noise_model_level=noise_model_level, field_params=field_params)

@@ -1,6 +1,6 @@
-# add learned field plots at ixed and multiple time snapshots for all models, not just the SIREN ones
-description: "3D overdamped cells with spring forces + moving Gaussian field (GNN + SIREN)"
-dataset: "dicty_spring_force_rk4_dynamic_field_siren_v4"
+# Diffusion-decay chemical field: dc/dt = D * laplacian(c) - lambda * c
+description: "3D overdamped cells with spring forces + diffusion-decay field (GNN)"
+dataset: "dicty_spring_force_rk4_diffusion_field_v1"
 
 simulation:
   dimension: 3
@@ -19,14 +19,23 @@ simulation:
   noise_model_level: 0.0
   integration: "Runge-Kutta"
   field_params:
-    center_0: [0.2, 0.5, 0.5]
-    velocity: [0.15, 0.0, 0.0]
+    # PDE: dc/dt = D * laplacian(c) - lambda * c + alpha * sum_i delta(x - x_i)
+    diffusion_coeff: 0.001       # D
+    lambda_decay: 0.1            # lambda
+    grid_resolution: 64          # grid points per axis
+    source_strength: 0.01        # alpha — chemical secretion rate per cell
+    # Initial condition: Gaussian blobs
+    center_0:
+      - [0.20, 0.30, 0.50]
+      - [0.70, 0.50, 0.50]
+      - [0.40, 0.80, 0.50]
+      - [0.60, 0.20, 0.50]
     amplitude: 1.0
-    sigma: 0.15
+    sigma: 0.05
     mu_chem: 0.02
 
 graph_model:
-  cell_model_name: "particle_spring_force_dynamic_field_siren"
+  cell_model_name: "particle_spring_force_diffusion_field"
   prediction: "first_derivative"
   input_size: 6
   output_size: 3
@@ -35,9 +44,6 @@ graph_model:
   aggr_type: "add"
   embedding_dim: 2
   update_type: "none"
-  n_layers_field: 3
-  hidden_dim_field: 128
-  omega_field: 30.0
 
 plotting:
   colormap: "tab10"
@@ -45,26 +51,16 @@ plotting:
   xlim: [0, 0.12]
   invert_mlp1_sign: true
 
-inr:
-  inr_field_name: "velocity"
-  inr_type: "siren_txyz"
-  inr_gradient_mode: false
-  hidden_dim_inr: 256
-  n_layers_inr: 5
-  omega_inr: 80.0
-  inr_total_steps: 500000
-  inr_batch_size: 8
-  inr_learning_rate: 1.0e-5
-  inr_xy_period: 1.0
-  inr_t_period: 1.0
-
 training:
   n_runs: 1
   device: "auto"
-  n_epochs: 4
+  n_epochs: 10
   batch_size: 8
   small_init_batch_size: False
-  sparsity: "none"
+  sparsity: "replace_embedding_function"
+  sparsity_freq: 1
+  cluster_method: "distance_plot"
+  fix_cluster_embedding: True
   rotation_augmentation: True
   data_augmentation_loop: 20
   learning_rate_start: 1.0E-4
@@ -72,10 +68,3 @@ training:
 
   rollout:
   integration: "Runge-Kutta"
-
-claude:
-  n_epochs: 1
-  data_augmentation_loop: 100
-  n_iter_block: 24
-  ucb_c: 1.414
-  node_name: "a100"

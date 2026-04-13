@@ -8,7 +8,7 @@ from cell_gnn.graph_utils import remove_self_loops, scatter_aggregate
 from cell_gnn.models.registry import register_model
 
 
-@register_model("arbitrary_ode", "boids_ode", "gravity_ode", "particle_spring_force_ode", "particle_spring_force_dynamic_field")
+@register_model("arbitrary_ode", "boids_ode", "gravity_ode", "particle_spring_force_ode", "particle_spring_force_dynamic_field", "particle_spring_force_diffusion_field")
 class CellGNN(nn.Module):
     """Interaction Network for cell dynamics — learns pairwise interaction from relative positions/velocities.
 

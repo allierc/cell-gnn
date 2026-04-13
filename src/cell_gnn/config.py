@@ -90,11 +90,17 @@ class INRType(StrEnum):
 class FieldParamsConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", protected_namespaces=())
 
-    center_0: list[float] = [0.5, 0.5, 0.5]
-    velocity: list[float] = [0.0, 0.0, 0.0]
+    # Moving Gaussian chemical field. Two modes controlled by ``field_type``:
+    #   'single' (default): center_0/velocity are (dim,)
+    #   'multi':            center_0/velocity are (S, dim)  — S moving blobs
+    # amplitude, sigma, mu_chem are scalars in both modes (all blobs share them).
+    field_type: str = "single"
+    center_0: list = [0.5, 0.5, 0.5]
+    velocity: list = [0.0, 0.0, 0.0]
     amplitude: float = 1.0
     sigma: float = 0.15
     mu_chem: float = 0.5
+    periodic: Optional[bool] = None
 
 
 class SimulationConfig(BaseModel):

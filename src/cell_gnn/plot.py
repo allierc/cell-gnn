@@ -25,7 +25,7 @@ from cell_gnn.utils import to_numpy
 #  Vectorized helpers
 # --------------------------------------------------------------------------- #
 
-def build_edge_features(rr, embedding, model_name, max_radius, dimension=2):
+def build_edge_features(rr, embedding, model_name, max_radius, dimension=2, batched=None):
     """Build input features for the edge MLP, supporting batched embeddings.
 
     Args:
@@ -34,12 +34,16 @@ def build_edge_features(rr, embedding, model_name, max_radius, dimension=2):
         model_name: one of arbitrary_ode, boids_ode, gravity_ode, arbitrary_field_ode, boids_field_ode
         max_radius: float
         dimension: int, spatial dimension (2 or 3)
+        batched: if True, force batched path (embedding is (N, embed_dim)); if False, force
+            non-batched path (embedding is (n_pts, embed_dim)); if None, auto-detect by
+            shape (ambiguous when N == n_pts).
 
     Returns:
         (N, n_pts, input_dim) or (n_pts, input_dim) tensor of features
     """
-    # Handle batched case: embedding is (N, embed_dim), rr is (n_pts,)
-    if embedding.dim() == 2 and rr.dim() == 1 and embedding.shape[0] != rr.shape[0]:
+    if batched is None:
+        batched = embedding.dim() == 2 and rr.dim() == 1 and embedding.shape[0] != rr.shape[0]
+    if batched:
         N, embed_dim = embedding.shape
         n_pts = rr.shape[0]
         rr_exp = rr[None, :].expand(N, n_pts)  # (N, n_pts)
@@ -325,20 +329,41 @@ def plot_siren_field_fixed(model, config, log_dir, epoch, N, ynorm, device, k_fr
     v_learned_np = to_numpy(v_learned)
 
     # --- true: mu_chem * grad C ---
+    # Supports both single-source and multi-source moving Gaussian field,
+    # selected via field_params.field_type ('single' default, or 'multi').
+    import math
     center_0 = torch.tensor(fp.center_0, dtype=pos.dtype, device=device)
     velocity = torch.tensor(fp.velocity, dtype=pos.dtype, device=device)
-    sigma_f = float(fp.sigma)
-    amplitude = float(fp.amplitude)
-    mu_chem = float(fp.mu_chem)
+    is_multi = getattr(fp, 'field_type', 'single') == 'multi'
     t_phys = float(k_frame) * sim.delta_t
-    center_t = center_0 + velocity * t_phys
-    diff = pos - center_t.unsqueeze(0)
-    if sim.boundary == 'periodic':
-        diff = diff - torch.round(diff)
-    r2 = (diff ** 2).sum(dim=1, keepdim=True)
-    C = amplitude * torch.exp(-r2 / (2.0 * sigma_f ** 2))
-    grad_C = -C * diff / (sigma_f ** 2)
-    v_true = mu_chem * grad_C
+
+    if is_multi:
+        # (S, dim) centers; shared scalar amplitude/sigma
+        centers_t = center_0 + velocity * t_phys                       # (S, dim)
+        amplitude = float(fp.amplitude)
+        sigma_f = float(fp.sigma)
+        mu_chem = float(fp.mu_chem)
+
+        diff = pos.unsqueeze(1) - centers_t.unsqueeze(0)               # (N, S, dim)
+        if sim.boundary == 'periodic':
+            diff = diff - torch.round(diff)
+        dist_sq = (diff ** 2).sum(dim=-1)                              # (N, S)
+        C_s = amplitude * torch.exp(-dist_sq / (2.0 * sigma_f ** 2))   # (N, S)
+        grad_C = (-C_s.unsqueeze(-1) * diff / (sigma_f ** 2)).sum(dim=1)  # (N, dim)
+        v_true = mu_chem * grad_C
+        center_t = centers_t[0]  # first source for the star marker
+    else:
+        sigma_f = float(fp.sigma)
+        amplitude = float(fp.amplitude)
+        mu_chem = float(fp.mu_chem)
+        center_t = center_0 + velocity * t_phys
+        diff = pos - center_t.unsqueeze(0)
+        if sim.boundary == 'periodic':
+            diff = diff - torch.round(diff)
+        r2 = (diff ** 2).sum(dim=1, keepdim=True)
+        C = amplitude * torch.exp(-r2 / (2.0 * sigma_f ** 2))
+        grad_C = -C * diff / (sigma_f ** 2)
+        v_true = mu_chem * grad_C
     v_true_np = to_numpy(v_true)
 
     # common arrow scale based on true magnitude — same across all checkpoints
@@ -420,6 +445,8 @@ def plot_siren_field_slice(model, config, log_dir, epoch, N, ynorm, device, n_ti
 
     center_0 = torch.tensor(fp.center_0, dtype=pos.dtype, device=device)
     velocity = torch.tensor(fp.velocity, dtype=pos.dtype, device=device)
+    is_multi = getattr(fp, 'field_type', 'single') == 'multi'
+    # scalars in both modes
     sigma_f = float(fp.sigma)
     amplitude = float(fp.amplitude)
     mu_chem = float(fp.mu_chem)
@@ -441,14 +468,25 @@ def plot_siren_field_slice(model, config, log_dir, epoch, N, ynorm, device, n_ti
 
         # --- true ---
         t_phys = float(k_frame) * sim.delta_t
-        center_t = center_0 + velocity * t_phys
-        diff = pos - center_t.unsqueeze(0)
-        if sim.boundary == 'periodic':
-            diff = diff - torch.round(diff)
-        r2 = (diff ** 2).sum(dim=1, keepdim=True)
-        C = amplitude * torch.exp(-r2 / (2.0 * sigma_f ** 2))
-        grad_C = -C * diff / (sigma_f ** 2)
-        v_true = mu_chem * grad_C
+        if is_multi:
+            centers_t = center_0 + velocity * t_phys                           # (S, dim)
+            diff_multi = pos.unsqueeze(1) - centers_t.unsqueeze(0)             # (N, S, dim)
+            if sim.boundary == 'periodic':
+                diff_multi = diff_multi - torch.round(diff_multi)
+            dist_sq = (diff_multi ** 2).sum(dim=-1)                            # (N, S)
+            C_s = amplitude * torch.exp(-dist_sq / (2.0 * sigma_f ** 2))       # (N, S)
+            grad_C = (-C_s.unsqueeze(-1) * diff_multi / (sigma_f ** 2)).sum(dim=1)
+            v_true = mu_chem * grad_C
+            center_t = centers_t[0]  # first source used for the star marker
+        else:
+            center_t = center_0 + velocity * t_phys
+            diff = pos - center_t.unsqueeze(0)
+            if sim.boundary == 'periodic':
+                diff = diff - torch.round(diff)
+            r2 = (diff ** 2).sum(dim=1, keepdim=True)
+            C = amplitude * torch.exp(-r2 / (2.0 * sigma_f ** 2))
+            grad_C = -C * diff / (sigma_f ** 2)
+            v_true = mu_chem * grad_C
         v_true_np = to_numpy(v_true)
 
         if common_scale is None:

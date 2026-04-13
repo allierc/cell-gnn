@@ -33,6 +33,7 @@ def _discover_simulators():
     import cell_gnn.generators.gravity_ode  # noqa: F401
     import cell_gnn.generators.particle_spring_force_ode  # noqa: F401
     import cell_gnn.generators.particle_spring_force_dynamic_field  # noqa: F401
+    import cell_gnn.generators.particle_spring_force_diffusion_field  # noqa: F401
 
 
 def _discover_models():
