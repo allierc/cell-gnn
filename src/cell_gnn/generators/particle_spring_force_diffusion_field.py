@@ -213,6 +213,46 @@ def deposit_to_grid(pos, strength, resolution, dimension, device):
     return S
 
 
+def deposit_to_grid_weighted(pos, strength, resolution, dimension, device):
+    """Same as ``deposit_to_grid`` but ``strength`` is per-particle ``(P,)``."""
+    grid_shape = [resolution] * dimension
+    S = torch.zeros(grid_shape, device=device)
+    scaled = pos * resolution
+    idx0 = scaled.long() % resolution
+    idx1 = (idx0 + 1) % resolution
+    frac = scaled - scaled.floor()
+
+    if dimension == 3:
+        ix0, iy0, iz0 = idx0[:, 0], idx0[:, 1], idx0[:, 2]
+        ix1, iy1, iz1 = idx1[:, 0], idx1[:, 1], idx1[:, 2]
+        fx, fy, fz = frac[:, 0], frac[:, 1], frac[:, 2]
+        weights = [
+            (iz0, iy0, ix0, (1 - fx) * (1 - fy) * (1 - fz)),
+            (iz0, iy0, ix1, fx       * (1 - fy) * (1 - fz)),
+            (iz0, iy1, ix0, (1 - fx) * fy       * (1 - fz)),
+            (iz0, iy1, ix1, fx       * fy       * (1 - fz)),
+            (iz1, iy0, ix0, (1 - fx) * (1 - fy) * fz),
+            (iz1, iy0, ix1, fx       * (1 - fy) * fz),
+            (iz1, iy1, ix0, (1 - fx) * fy       * fz),
+            (iz1, iy1, ix1, fx       * fy       * fz),
+        ]
+        for iz, iy, ix, w in weights:
+            S.index_put_((iz, iy, ix), strength * w, accumulate=True)
+    else:
+        ix0, iy0 = idx0[:, 0], idx0[:, 1]
+        ix1, iy1 = idx1[:, 0], idx1[:, 1]
+        fx, fy = frac[:, 0], frac[:, 1]
+        weights = [
+            (iy0, ix0, (1 - fx) * (1 - fy)),
+            (iy0, ix1, fx       * (1 - fy)),
+            (iy1, ix0, (1 - fx) * fy),
+            (iy1, ix1, fx       * fy),
+        ]
+        for iy, ix, w in weights:
+            S.index_put_((iy, ix), strength * w, accumulate=True)
+    return S
+
+
 @register_simulator("particle_spring_force_diffusion_field",
                      "particle_spring_force_diffusion_field_siren",
                      "particle_spring_force_diffusion_field_siren_grad")
@@ -269,6 +309,8 @@ class ParticleSpringForceDiffusionField(nn.Module):
         self._field_grid = None   # real-space concentration  (N,)*dim
         self._decay = None        # spectral decay factor
         self._last_step = -1      # track which timestep we're on
+        self._source_mask = None  # (n_cells,) bool: which cells can ever emit
+        self._source_phase = None # (n_cells,) float in [0,1): pulse phase per cell
 
     # ------------------------------------------------------------------
     def _init_grid(self, device):
@@ -293,16 +335,47 @@ class ParticleSpringForceDiffusionField(nn.Module):
         spectral decay/diffusion operator.
         """
         dim = self.dimension
-        res = self.field_params['grid_resolution']
-        dt = self.field_params['delta_t']
-        alpha = self.field_params.get('source_strength', 0.0)
+        fp = self.field_params
+        res = fp['grid_resolution']
+        dt = fp['delta_t']
+        alpha = fp.get('source_strength', 0.0)
+        source_fraction = fp.get('source_fraction', 1.0)
+        pulse_period = fp.get('pulse_period', 0)      # 0 → constant emission
+        pulse_duty = fp.get('pulse_duty', 1.0)
         s = [res] * dim
 
-        for _ in range(n_steps):
-            # Deposit cell sources onto grid
+        # Lazily pick random source subset + per-cell pulse phases
+        if alpha > 0 and self._source_mask is None:
+            n = pos.shape[0]
+            n_src = max(1, int(round(source_fraction * n)))
+            perm = torch.randperm(n, device=pos.device)
+            mask = torch.zeros(n, dtype=torch.bool, device=pos.device)
+            mask[perm[:n_src]] = True
+            self._source_mask = mask
+            self._source_phase = torch.rand(n, device=pos.device)
+
+        for i in range(n_steps):
             if alpha > 0:
-                source = deposit_to_grid(pos, alpha * dt, res, dim, pos.device)
-                self._field_grid = self._field_grid + source
+                current_step = self._last_step + 1 + i
+                if pulse_period and pulse_period > 0:
+                    phase = (current_step / float(pulse_period)
+                             + self._source_phase) % 1.0
+                    d = torch.minimum(phase, 1.0 - phase)
+                    sigma = max(pulse_duty, 1e-3) / 2.0
+                    pulse = torch.exp(-0.5 * (d / sigma) ** 2)
+                    pulse = pulse * self._source_mask.float()
+                    gain = 1.0 / max(pulse_duty, 1e-3)
+                    active = pulse > 1e-4
+                    if active.any():
+                        strength = alpha * dt * gain * pulse[active]
+                        source = deposit_to_grid_weighted(
+                            pos[active], strength, res, dim, pos.device)
+                        self._field_grid = self._field_grid + source
+                else:
+                    # Constant emission, possibly restricted to source subset
+                    emit_pos = pos[self._source_mask] if source_fraction < 1.0 else pos
+                    source = deposit_to_grid(emit_pos, alpha * dt, res, dim, pos.device)
+                    self._field_grid = self._field_grid + source
 
             # Diffusion + decay step in Fourier space
             C_hat = torch.fft.rfftn(self._field_grid, s=s)
