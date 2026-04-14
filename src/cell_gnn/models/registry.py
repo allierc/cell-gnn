@@ -44,6 +44,7 @@ def _discover_models():
     import cell_gnn.models.cell_gnn  # noqa: F401
     import cell_gnn.models.cell_field_gnn  # noqa: F401
     import cell_gnn.models.cell_gnn_siren_field  # noqa: F401
+    import cell_gnn.models.cell_gnn_siren_grad_field  # noqa: F401
 
 
 def register_simulator(*names: str):

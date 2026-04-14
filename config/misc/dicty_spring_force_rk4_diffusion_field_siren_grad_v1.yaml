@@ -1,6 +1,7 @@
-# Diffusion-decay chemical field: dc/dt = D * laplacian(c) - lambda * c + alpha * sum_i delta(x - x_i)
-description: "3D overdamped cells with spring forces + diffusion-decay field with cell sources (GNN + SIREN)"
-dataset: "dicty_spring_force_rk4_diffusion_field_v1"
+# Diffusion-decay chemical field with SIREN scalar potential + autograd gradient
+# SIREN learns c(x,t), chemical force = grad_x(c) via torch.autograd
+description: "3D overdamped cells with spring forces + diffusion-decay field (GNN + SIREN grad)"
+dataset: "dicty_spring_force_rk4_diffusion_field_siren_grad_v1"
 
 simulation:
   dimension: 3
@@ -8,21 +9,21 @@ simulation:
   n_cell_types: 1
   n_frames: 8000
   delta_t: 0.002
-  max_radius: 0.15
+  max_radius: 0.075
   min_radius: 0
   sigma: 0.005
   boundary: "periodic"
   dpos_init: 0
-  cell_params: [[50.0, 0.1, 50.0, 0.14, 0.001, 0.033]]
+  cell_params: [[50.0, 0.05, 50.0, 0.07, 0.001, 0.033]]
   #              k_rep  r0   kadh  r_on  delta  mu_f
   func_params: [["spring", 0, 0]]
-  noise_model_level: 0.01
+  noise_model_level: 0.0
   integration: "Runge-Kutta"
   field_params:
     # PDE: dc/dt = D * laplacian(c) - lambda * c + alpha * sum_i delta(x - x_i)
     diffusion_coeff: 0.01        # D
     lambda_decay: 0.1            # lambda
-    grid_resolution: 100           # grid points per axis
+    grid_resolution: 100         # grid points per axis
     source_strength: 5.0         # alpha — chemical secretion rate per cell
     # Initial condition: zero field (built purely from cell sources)
     center_0:
@@ -32,7 +33,7 @@ simulation:
     mu_chem: 0.02
 
 graph_model:
-  cell_model_name: "particle_spring_force_diffusion_field_siren"
+  cell_model_name: "particle_spring_force_diffusion_field_siren_grad"
   prediction: "first_derivative"
   input_size: 6
   output_size: 3
@@ -48,7 +49,7 @@ graph_model:
 plotting:
   colormap: "tab10"
   arrow_length: 2
-  xlim: [0, 0.15]
+  xlim: [0, 0.12]
   invert_mlp1_sign: true
 
 inr:

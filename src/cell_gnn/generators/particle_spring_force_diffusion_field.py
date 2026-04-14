@@ -214,7 +214,8 @@ def deposit_to_grid(pos, strength, resolution, dimension, device):
 
 
 @register_simulator("particle_spring_force_diffusion_field",
-                     "particle_spring_force_diffusion_field_siren")
+                     "particle_spring_force_diffusion_field_siren",
+                     "particle_spring_force_diffusion_field_siren_grad")
 class ParticleSpringForceDiffusionField(nn.Module):
     r"""Overdamped cell dynamics with spring forces + chemotaxis from a
     diffusing chemical field.

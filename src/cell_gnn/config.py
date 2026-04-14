@@ -102,6 +102,12 @@ class FieldParamsConfig(BaseModel):
     mu_chem: float = 0.5
     periodic: Optional[bool] = None
 
+    # Diffusion-decay field: dc/dt = D * laplacian(c) - lambda * c + alpha * sum_i delta(x - x_i)
+    diffusion_coeff: float = 0.01
+    lambda_decay: float = 0.1
+    grid_resolution: int = 64
+    source_strength: float = 0.0
+
 
 class SimulationConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", protected_namespaces=())

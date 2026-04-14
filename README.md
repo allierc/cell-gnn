@@ -36,3 +36,5 @@ for epoch in range(n_epochs=4):                       # n_epochs from config
         loss = ‖pred − y_true‖₂                       # ONE loss per iteration
         loss.backward()
         optimizer.step()                              # ONE weight update per iteration
+
+bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o generate_train_test dicty_spring_force_rk4_n3000"

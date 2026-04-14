@@ -22,6 +22,106 @@ from cell_gnn.utils import to_numpy
 
 
 # --------------------------------------------------------------------------- #
+#  Diffusion field ground-truth replay
+# --------------------------------------------------------------------------- #
+
+def _replay_diffusion_field(config, k_frame, grid_pos, device):
+    """Replay the diffusion PDE up to frame *k_frame* and return the true
+    chemotactic velocity ``mu_chem * grad(c)`` evaluated at *grid_pos*.
+
+    Loads saved cell positions from zarr, deposits sources each frame,
+    and advances the spectral solver to reconstruct the concentration field.
+
+    Parameters
+    ----------
+    config : CellGNNConfig
+    k_frame : int  — frame index to reconstruct
+    grid_pos : (M, dim) tensor — positions at which to evaluate the field velocity
+    device : torch.device
+
+    Returns
+    -------
+    v_true : (M, dim) tensor — ``mu_chem * grad(c)`` at *grid_pos*
+    """
+    from cell_gnn.zarr_io import load_simulation_data
+    from cell_gnn.generators.particle_spring_force_diffusion_field import (
+        init_gaussian_field, build_spectral_decay, deposit_to_grid, spectral_gradient,
+        interp_periodic,
+    )
+
+    sim = config.simulation
+    fp = sim.field_params
+    dataset_name = config.dataset
+    dim = sim.dimension
+    res = fp.grid_resolution
+    dt = sim.delta_t
+    D = fp.diffusion_coeff
+    lam = fp.lambda_decay
+    alpha = fp.source_strength
+    mu_chem = fp.mu_chem
+
+    center_0 = torch.tensor(fp.center_0, dtype=torch.float32, device=device)
+
+    # initialise field grid
+    field_grid = init_gaussian_field(
+        res, dim, center_0, fp.amplitude, fp.sigma,
+        sim.boundary == 'periodic', device)
+    decay = build_spectral_decay(res, dim, D, lam, dt, device)
+
+    # load saved positions
+    x_ts = load_simulation_data(f'graphs_data/{dataset_name}/x_list_0', dim)
+
+    s = [res] * dim
+    # replay PDE up to k_frame
+    for k in range(k_frame + 1):
+        pos_k = x_ts.frame(k).pos.to(device)
+        if alpha > 0:
+            source = deposit_to_grid(pos_k, alpha * dt, res, dim, device)
+            field_grid = field_grid + source
+        C_hat = torch.fft.rfftn(field_grid, s=s)
+        C_hat = C_hat * decay
+        field_grid = torch.fft.irfftn(C_hat, s=s)
+
+    # compute gradient on grid and interpolate to query positions
+    C_hat = torch.fft.rfftn(field_grid, s=s)
+    grad_grid = spectral_gradient(C_hat, res, dim, device)
+
+    grid_pos_dev = grid_pos.to(device)
+    field_gradient = interp_periodic(grad_grid, grid_pos_dev, res)  # (M, dim)
+    v_true = mu_chem * field_gradient
+    return v_true
+
+
+def _eval_siren_field(model, pos, k_frame, ynorm, device):
+    """Evaluate the SIREN field branch, handling both vector and scalar-grad models.
+
+    For vector SIREN (out_features == dim): direct output.
+    For scalar SIREN (out_features == 1): compute grad_x(c) via autograd.
+
+    Returns (M, dim) numpy array of the learned field velocity.
+    """
+    is_grad_model = 'siren_grad' in model.model
+    k_tensor = torch.full((pos.shape[0], 1), float(k_frame), dtype=pos.dtype, device=device)
+
+    if is_grad_model:
+        pos_field = pos.detach().requires_grad_(True)
+        siren_input = torch.cat([pos_field, k_tensor / model.n_frames], dim=1)
+        c = model.siren_field(siren_input)  # (M, 1)
+        grad_c = torch.autograd.grad(
+            outputs=c, inputs=pos_field,
+            grad_outputs=torch.ones_like(c),
+            create_graph=False, retain_graph=False,
+        )[0]  # (M, dim)
+        v_learned = grad_c * float(ynorm)
+        return to_numpy(v_learned.detach())
+    else:
+        with torch.no_grad():
+            siren_input = torch.cat([pos, k_tensor / model.n_frames], dim=1)
+            v_learned = model.siren_field(siren_input) * float(ynorm)
+        return to_numpy(v_learned)
+
+
+# --------------------------------------------------------------------------- #
 #  Vectorized helpers
 # --------------------------------------------------------------------------- #
 
@@ -55,7 +155,7 @@ def build_edge_features(rr, embedding, model_name, max_radius, dimension=2, batc
         r = rr_exp.unsqueeze(-1) / max_radius  # (N, n_pts, 1)
 
         match model_name:
-            case 'arbitrary_ode' | 'arbitrary_field_ode' | 'particle_spring_force_ode' | 'particle_spring_force_dynamic_field' | 'particle_spring_force_dynamic_field_siren':
+            case 'arbitrary_ode' | 'arbitrary_field_ode' | 'particle_spring_force_ode' | 'particle_spring_force_dynamic_field' | 'particle_spring_force_dynamic_field_siren' | 'particle_spring_force_diffusion_field' | 'particle_spring_force_diffusion_field_siren' | 'particle_spring_force_diffusion_field_siren_grad':
                 return torch.cat((delta_pos, r, emb_exp), dim=-1)
             case 'boids_ode' | 'boids_field_ode':
                 r_abs = torch.abs(rr_exp).unsqueeze(-1) / max_radius
@@ -74,7 +174,7 @@ def build_edge_features(rr, embedding, model_name, max_radius, dimension=2, batc
         r = rr[:, None] / max_radius
 
         match model_name:
-            case 'arbitrary_ode' | 'arbitrary_field_ode' | 'particle_spring_force_ode' | 'particle_spring_force_dynamic_field' | 'particle_spring_force_dynamic_field_siren':
+            case 'arbitrary_ode' | 'arbitrary_field_ode' | 'particle_spring_force_ode' | 'particle_spring_force_dynamic_field' | 'particle_spring_force_dynamic_field_siren' | 'particle_spring_force_diffusion_field' | 'particle_spring_force_diffusion_field_siren' | 'particle_spring_force_diffusion_field_siren_grad':
                 return torch.cat((delta_pos, r, embedding), dim=1)
             case 'boids_ode' | 'boids_field_ode':
                 r_abs = torch.abs(rr[:, None]) / max_radius
@@ -322,85 +422,120 @@ def plot_siren_field_fixed(model, config, log_dir, epoch, N, ynorm, device, k_fr
     pos_np = to_numpy(pos)
 
     # --- learned ---
-    with torch.no_grad():
-        k_tensor = torch.full((pos.shape[0], 1), float(k_frame), dtype=pos.dtype, device=device)
-        siren_input = torch.cat([pos, k_tensor / model.n_frames], dim=1)
-        v_learned = model.siren_field(siren_input) * float(ynorm)
-    v_learned_np = to_numpy(v_learned)
+    v_learned_np = _eval_siren_field(model, pos, k_frame, ynorm, device)
 
     # --- true: mu_chem * grad C ---
-    # Supports both single-source and multi-source moving Gaussian field,
-    # selected via field_params.field_type ('single' default, or 'multi').
-    import math
-    center_0 = torch.tensor(fp.center_0, dtype=pos.dtype, device=device)
-    velocity = torch.tensor(fp.velocity, dtype=pos.dtype, device=device)
-    is_multi = getattr(fp, 'field_type', 'single') == 'multi'
+    # For diffusion-field models the ground truth is PDE-computed (not analytic),
+    # so we skip the true/error panels and only show the learned field.
+    cell_model = config.graph_model.cell_model_name
+    is_diffusion = 'diffusion_field' in cell_model
     t_phys = float(k_frame) * sim.delta_t
 
-    if is_multi:
-        # (S, dim) centers; shared scalar amplitude/sigma
-        centers_t = center_0 + velocity * t_phys                       # (S, dim)
-        amplitude = float(fp.amplitude)
-        sigma_f = float(fp.sigma)
-        mu_chem = float(fp.mu_chem)
+    if is_diffusion:
+        # Replay PDE to reconstruct ground truth
+        with torch.no_grad():
+            v_true = _replay_diffusion_field(config, k_frame, pos, device)
+        v_true_np = to_numpy(v_true)
 
-        diff = pos.unsqueeze(1) - centers_t.unsqueeze(0)               # (N, S, dim)
-        if sim.boundary == 'periodic':
-            diff = diff - torch.round(diff)
-        dist_sq = (diff ** 2).sum(dim=-1)                              # (N, S)
-        C_s = amplitude * torch.exp(-dist_sq / (2.0 * sigma_f ** 2))   # (N, S)
-        grad_C = (-C_s.unsqueeze(-1) * diff / (sigma_f ** 2)).sum(dim=1)  # (N, dim)
-        v_true = mu_chem * grad_C
-        center_t = centers_t[0]  # first source for the star marker
+        common_scale = max(np.linalg.norm(v_true_np, axis=1).max() * 10.0, 1e-6)
+
+        fig, axes = plt.subplots(1, 3, figsize=(15, 5), facecolor=style.background)
+
+        # learned
+        ax = axes[0]
+        ax.quiver(pos_np[:, 0], pos_np[:, 1], v_learned_np[:, 0], v_learned_np[:, 1],
+                  angles='xy', scale_units='xy', scale=common_scale,
+                  color=style.foreground, width=0.004)
+        ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_aspect('equal')
+        ax.set_title(f'learned siren_field  (k={k_frame}, t={t_phys:.2f})', color=style.foreground)
+
+        # true
+        ax = axes[1]
+        ax.quiver(pos_np[:, 0], pos_np[:, 1], v_true_np[:, 0], v_true_np[:, 1],
+                  angles='xy', scale_units='xy', scale=common_scale,
+                  color=style.foreground, width=0.004)
+        ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_aspect('equal')
+        ax.set_title(f'true mu_chem*grad C  (PDE replay)', color=style.foreground)
+
+        # error magnitude
+        ax = axes[2]
+        err = np.linalg.norm(v_learned_np - v_true_np, axis=1).reshape(grid_n, grid_n)
+        im = ax.imshow(err, origin='lower', extent=[0, 1, 0, 1], cmap='magma')
+        ax.set_aspect('equal')
+        ax.set_title(f'|learned - true|  (mean={err.mean():.4f})', color=style.foreground)
+        plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     else:
-        sigma_f = float(fp.sigma)
-        amplitude = float(fp.amplitude)
-        mu_chem = float(fp.mu_chem)
-        center_t = center_0 + velocity * t_phys
-        diff = pos - center_t.unsqueeze(0)
+        # Analytic moving-Gaussian ground truth
+        # Supports both single-source and multi-source field.
+        import math
+        center_0 = torch.tensor(fp.center_0, dtype=pos.dtype, device=device)
+        velocity = torch.tensor(fp.velocity, dtype=pos.dtype, device=device)
+        is_multi = getattr(fp, 'field_type', 'single') == 'multi'
+
+        if is_multi:
+            centers_t = center_0 + velocity * t_phys                       # (S, dim)
+            amplitude = float(fp.amplitude)
+            sigma_f = float(fp.sigma)
+            mu_chem = float(fp.mu_chem)
+
+            diff = pos.unsqueeze(1) - centers_t.unsqueeze(0)               # (N, S, dim)
+            if sim.boundary == 'periodic':
+                diff = diff - torch.round(diff)
+            dist_sq = (diff ** 2).sum(dim=-1)                              # (N, S)
+            C_s = amplitude * torch.exp(-dist_sq / (2.0 * sigma_f ** 2))   # (N, S)
+            grad_C = (-C_s.unsqueeze(-1) * diff / (sigma_f ** 2)).sum(dim=1)
+            v_true = mu_chem * grad_C
+            center_t = centers_t[0]
+        else:
+            sigma_f = float(fp.sigma)
+            amplitude = float(fp.amplitude)
+            mu_chem = float(fp.mu_chem)
+            center_t = center_0 + velocity * t_phys
+            if center_t.dim() > 1:
+                center_t = center_t.squeeze(0)
+            diff = pos - center_t.unsqueeze(0)
+            if sim.boundary == 'periodic':
+                diff = diff - torch.round(diff)
+            r2 = (diff ** 2).sum(dim=1, keepdim=True)
+            C = amplitude * torch.exp(-r2 / (2.0 * sigma_f ** 2))
+            grad_C = -C * diff / (sigma_f ** 2)
+            v_true = mu_chem * grad_C
+        v_true_np = to_numpy(v_true)
+
+        common_scale = max(np.linalg.norm(v_true_np, axis=1).max() * 10.0, 1e-6)
+        cx, cy = float(center_t[0].item()), float(center_t[1].item())
         if sim.boundary == 'periodic':
-            diff = diff - torch.round(diff)
-        r2 = (diff ** 2).sum(dim=1, keepdim=True)
-        C = amplitude * torch.exp(-r2 / (2.0 * sigma_f ** 2))
-        grad_C = -C * diff / (sigma_f ** 2)
-        v_true = mu_chem * grad_C
-    v_true_np = to_numpy(v_true)
+            cx_w = cx - np.floor(cx); cy_w = cy - np.floor(cy)
+        else:
+            cx_w, cy_w = cx, cy
 
-    # common arrow scale based on true magnitude — same across all checkpoints
-    common_scale = max(np.linalg.norm(v_true_np, axis=1).max() * 10.0, 1e-6)
-    cx, cy = float(center_t[0].item()), float(center_t[1].item())
-    if sim.boundary == 'periodic':
-        cx_w = cx - np.floor(cx); cy_w = cy - np.floor(cy)
-    else:
-        cx_w, cy_w = cx, cy
+        fig, axes = plt.subplots(1, 3, figsize=(15, 5), facecolor=style.background)
 
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5), facecolor=style.background)
+        # learned
+        ax = axes[0]
+        ax.quiver(pos_np[:, 0], pos_np[:, 1], v_learned_np[:, 0], v_learned_np[:, 1],
+                  angles='xy', scale_units='xy', scale=common_scale,
+                  color=style.foreground, width=0.004)
+        ax.plot(cx_w, cy_w, '*', markersize=15, color='red')
+        ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_aspect('equal')
+        ax.set_title(f'learned siren_field  (k={k_frame}, t={t_phys:.2f})', color=style.foreground)
 
-    # learned
-    ax = axes[0]
-    ax.quiver(pos_np[:, 0], pos_np[:, 1], v_learned_np[:, 0], v_learned_np[:, 1],
-              angles='xy', scale_units='xy', scale=common_scale,
-              color=style.foreground, width=0.004)
-    ax.plot(cx_w, cy_w, '*', markersize=15, color='red')
-    ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_aspect('equal')
-    ax.set_title(f'learned siren_field  (k={k_frame}, t={t_phys:.2f})', color=style.foreground)
+        # true
+        ax = axes[1]
+        ax.quiver(pos_np[:, 0], pos_np[:, 1], v_true_np[:, 0], v_true_np[:, 1],
+                  angles='xy', scale_units='xy', scale=common_scale,
+                  color=style.foreground, width=0.004)
+        ax.plot(cx_w, cy_w, '*', markersize=15, color='red')
+        ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_aspect('equal')
+        ax.set_title(f'true mu_chem*grad C  (mu={mu_chem})', color=style.foreground)
 
-    # true
-    ax = axes[1]
-    ax.quiver(pos_np[:, 0], pos_np[:, 1], v_true_np[:, 0], v_true_np[:, 1],
-              angles='xy', scale_units='xy', scale=common_scale,
-              color=style.foreground, width=0.004)
-    ax.plot(cx_w, cy_w, '*', markersize=15, color='red')
-    ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_aspect('equal')
-    ax.set_title(f'true mu_chem*grad C  (mu={mu_chem})', color=style.foreground)
-
-    # error magnitude
-    ax = axes[2]
-    err = np.linalg.norm(v_learned_np - v_true_np, axis=1).reshape(grid_n, grid_n)
-    im = ax.imshow(err, origin='lower', extent=[0, 1, 0, 1], cmap='magma')
-    ax.set_aspect('equal')
-    ax.set_title(f'|learned - true|  (mean={err.mean():.4f})', color=style.foreground)
-    plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        # error magnitude
+        ax = axes[2]
+        err = np.linalg.norm(v_learned_np - v_true_np, axis=1).reshape(grid_n, grid_n)
+        im = ax.imshow(err, origin='lower', extent=[0, 1, 0, 1], cmap='magma')
+        ax.set_aspect('equal')
+        ax.set_title(f'|learned - true|  (mean={err.mean():.4f})', color=style.foreground)
+        plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
     os.makedirs(f"./{log_dir}/tmp_training/field_fixed", exist_ok=True)
     plt.tight_layout()
@@ -443,83 +578,120 @@ def plot_siren_field_slice(model, config, log_dir, epoch, N, ynorm, device, n_ti
     # Time snapshots evenly spread across the trajectory
     k_frames = np.linspace(0, sim.n_frames - 1, n_time_snapshots).astype(int)
 
-    center_0 = torch.tensor(fp.center_0, dtype=pos.dtype, device=device)
-    velocity = torch.tensor(fp.velocity, dtype=pos.dtype, device=device)
-    is_multi = getattr(fp, 'field_type', 'single') == 'multi'
-    # scalars in both modes
-    sigma_f = float(fp.sigma)
-    amplitude = float(fp.amplitude)
-    mu_chem = float(fp.mu_chem)
+    cell_model = config.graph_model.cell_model_name
+    is_diffusion = 'diffusion_field' in cell_model
 
-    fig, axes = plt.subplots(2, n_time_snapshots,
-                              figsize=(4 * n_time_snapshots, 8),
-                              facecolor=style.background)
+    if is_diffusion:
+        # Diffusion field: replay PDE to get ground truth (2 rows: learned + true)
+        fig, axes = plt.subplots(2, n_time_snapshots,
+                                  figsize=(4 * n_time_snapshots, 8),
+                                  facecolor=style.background)
 
-    # use a single common arrow scale across all panels (based on max true magnitude)
-    common_scale = None
+        common_scale = None
+        for col, k_frame in enumerate(k_frames):
+            v_learned_np = _eval_siren_field(model, pos, k_frame, ynorm, device)
 
-    for col, k_frame in enumerate(k_frames):
-        # --- learned ---
-        with torch.no_grad():
-            k_tensor = torch.full((pos.shape[0], 1), float(k_frame), dtype=pos.dtype, device=device)
-            siren_input = torch.cat([pos, k_tensor / model.n_frames], dim=1)
-            v_learned = model.siren_field(siren_input) * float(ynorm)
-        v_learned_np = to_numpy(v_learned)
+            with torch.no_grad():
+                v_true = _replay_diffusion_field(config, k_frame, pos, device)
+            v_true_np = to_numpy(v_true)
+            t_phys = float(k_frame) * sim.delta_t
 
-        # --- true ---
-        t_phys = float(k_frame) * sim.delta_t
-        if is_multi:
-            centers_t = center_0 + velocity * t_phys                           # (S, dim)
-            diff_multi = pos.unsqueeze(1) - centers_t.unsqueeze(0)             # (N, S, dim)
+            if common_scale is None:
+                mag = np.linalg.norm(v_true_np, axis=1).max()
+                common_scale = max(mag * 10.0, 1e-6)
+
+            # learned (top row)
+            ax = axes[0, col]
+            ax.quiver(pos_np[:, 0], pos_np[:, 1], v_learned_np[:, 0], v_learned_np[:, 1],
+                      angles='xy', scale_units='xy', scale=common_scale,
+                      color=style.foreground, width=0.004)
+            ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_aspect('equal')
+            ax.set_title(f'learned  k={k_frame}  t={t_phys:.2f}', color=style.foreground, fontsize=10)
+
+            # true (bottom row)
+            ax = axes[1, col]
+            ax.quiver(pos_np[:, 0], pos_np[:, 1], v_true_np[:, 0], v_true_np[:, 1],
+                      angles='xy', scale_units='xy', scale=common_scale,
+                      color=style.foreground, width=0.004)
+            ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_aspect('equal')
+            err = np.linalg.norm(v_learned_np - v_true_np, axis=1).mean()
+            ax.set_title(f'true  k={k_frame}  err={err:.4f}', color=style.foreground, fontsize=10)
+
+        axes[0, 0].set_ylabel('learned siren_field', color=style.foreground)
+        axes[1, 0].set_ylabel('true mu_chem*grad C  (PDE)', color=style.foreground)
+    else:
+        center_0 = torch.tensor(fp.center_0, dtype=pos.dtype, device=device)
+        velocity = torch.tensor(fp.velocity, dtype=pos.dtype, device=device)
+        is_multi = getattr(fp, 'field_type', 'single') == 'multi'
+        sigma_f = float(fp.sigma)
+        amplitude = float(fp.amplitude)
+        mu_chem = float(fp.mu_chem)
+
+        fig, axes = plt.subplots(2, n_time_snapshots,
+                                  figsize=(4 * n_time_snapshots, 8),
+                                  facecolor=style.background)
+
+        common_scale = None
+
+        for col, k_frame in enumerate(k_frames):
+            # --- learned ---
+            v_learned_np = _eval_siren_field(model, pos, k_frame, ynorm, device)
+
+            # --- true ---
+            t_phys = float(k_frame) * sim.delta_t
+            if is_multi:
+                centers_t = center_0 + velocity * t_phys
+                diff_multi = pos.unsqueeze(1) - centers_t.unsqueeze(0)
+                if sim.boundary == 'periodic':
+                    diff_multi = diff_multi - torch.round(diff_multi)
+                dist_sq = (diff_multi ** 2).sum(dim=-1)
+                C_s = amplitude * torch.exp(-dist_sq / (2.0 * sigma_f ** 2))
+                grad_C = (-C_s.unsqueeze(-1) * diff_multi / (sigma_f ** 2)).sum(dim=1)
+                v_true = mu_chem * grad_C
+                center_t = centers_t[0]
+            else:
+                center_t = center_0 + velocity * t_phys
+                if center_t.dim() > 1:
+                    center_t = center_t.squeeze(0)
+                diff = pos - center_t.unsqueeze(0)
+                if sim.boundary == 'periodic':
+                    diff = diff - torch.round(diff)
+                r2 = (diff ** 2).sum(dim=1, keepdim=True)
+                C = amplitude * torch.exp(-r2 / (2.0 * sigma_f ** 2))
+                grad_C = -C * diff / (sigma_f ** 2)
+                v_true = mu_chem * grad_C
+            v_true_np = to_numpy(v_true)
+
+            if common_scale is None:
+                mag = np.linalg.norm(v_true_np, axis=1).max()
+                common_scale = max(mag * 10.0, 1e-6)
+
+            # learned (top row)
+            ax = axes[0, col]
+            ax.quiver(pos_np[:, 0], pos_np[:, 1], v_learned_np[:, 0], v_learned_np[:, 1],
+                      angles='xy', scale_units='xy', scale=common_scale,
+                      color=style.foreground, width=0.004)
+            cx, cy = float(center_t[0].item()), float(center_t[1].item())
             if sim.boundary == 'periodic':
-                diff_multi = diff_multi - torch.round(diff_multi)
-            dist_sq = (diff_multi ** 2).sum(dim=-1)                            # (N, S)
-            C_s = amplitude * torch.exp(-dist_sq / (2.0 * sigma_f ** 2))       # (N, S)
-            grad_C = (-C_s.unsqueeze(-1) * diff_multi / (sigma_f ** 2)).sum(dim=1)
-            v_true = mu_chem * grad_C
-            center_t = centers_t[0]  # first source used for the star marker
-        else:
-            center_t = center_0 + velocity * t_phys
-            diff = pos - center_t.unsqueeze(0)
-            if sim.boundary == 'periodic':
-                diff = diff - torch.round(diff)
-            r2 = (diff ** 2).sum(dim=1, keepdim=True)
-            C = amplitude * torch.exp(-r2 / (2.0 * sigma_f ** 2))
-            grad_C = -C * diff / (sigma_f ** 2)
-            v_true = mu_chem * grad_C
-        v_true_np = to_numpy(v_true)
+                cx_w = cx - np.floor(cx); cy_w = cy - np.floor(cy)
+            else:
+                cx_w, cy_w = cx, cy
+            ax.plot(cx_w, cy_w, '*', markersize=12, color='red')
+            ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_aspect('equal')
+            ax.set_title(f'learned  k={k_frame}  t={t_phys:.2f}', color=style.foreground, fontsize=10)
 
-        if common_scale is None:
-            mag = np.linalg.norm(v_true_np, axis=1).max()
-            common_scale = max(mag * 10.0, 1e-6)  # quiver scale (smaller = longer arrows)
+            # true (bottom row)
+            ax = axes[1, col]
+            ax.quiver(pos_np[:, 0], pos_np[:, 1], v_true_np[:, 0], v_true_np[:, 1],
+                      angles='xy', scale_units='xy', scale=common_scale,
+                      color=style.foreground, width=0.004)
+            ax.plot(cx_w, cy_w, '*', markersize=12, color='red')
+            ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_aspect('equal')
+            err = np.linalg.norm(v_learned_np - v_true_np, axis=1).mean()
+            ax.set_title(f'true  k={k_frame}  err={err:.4f}', color=style.foreground, fontsize=10)
 
-        # learned (top row)
-        ax = axes[0, col]
-        ax.quiver(pos_np[:, 0], pos_np[:, 1], v_learned_np[:, 0], v_learned_np[:, 1],
-                  angles='xy', scale_units='xy', scale=common_scale,
-                  color=style.foreground, width=0.004)
-        cx, cy = float(center_t[0].item()), float(center_t[1].item())
-        # show wrapped center for periodic
-        if sim.boundary == 'periodic':
-            cx_w = cx - np.floor(cx); cy_w = cy - np.floor(cy)
-        else:
-            cx_w, cy_w = cx, cy
-        ax.plot(cx_w, cy_w, '*', markersize=12, color='red')
-        ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_aspect('equal')
-        ax.set_title(f'learned  k={k_frame}  t={t_phys:.2f}', color=style.foreground, fontsize=10)
-
-        # true (bottom row)
-        ax = axes[1, col]
-        ax.quiver(pos_np[:, 0], pos_np[:, 1], v_true_np[:, 0], v_true_np[:, 1],
-                  angles='xy', scale_units='xy', scale=common_scale,
-                  color=style.foreground, width=0.004)
-        ax.plot(cx_w, cy_w, '*', markersize=12, color='red')
-        ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_aspect('equal')
-        err = np.linalg.norm(v_learned_np - v_true_np, axis=1).mean()
-        ax.set_title(f'true  k={k_frame}  err={err:.4f}', color=style.foreground, fontsize=10)
-
-    axes[0, 0].set_ylabel('learned siren_field', color=style.foreground)
-    axes[1, 0].set_ylabel(f'true mu_chem*grad C  (mu={mu_chem})', color=style.foreground)
+        axes[0, 0].set_ylabel('learned siren_field', color=style.foreground)
+        axes[1, 0].set_ylabel(f'true mu_chem*grad C  (mu={mu_chem})', color=style.foreground)
 
     os.makedirs(f"./{log_dir}/tmp_training/field", exist_ok=True)
     plt.tight_layout()
@@ -676,7 +848,7 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
     else:
         match model_config.cell_model_name:
 
-            case 'arbitrary_ode' | 'arbitrary_field_ode' | 'gravity_ode' | 'particle_spring_force_ode' | 'particle_spring_force_dynamic_field' | 'particle_spring_force_dynamic_field_siren':
+            case 'arbitrary_ode' | 'arbitrary_field_ode' | 'gravity_ode' | 'particle_spring_force_ode' | 'particle_spring_force_dynamic_field' | 'particle_spring_force_dynamic_field_siren' | 'particle_spring_force_diffusion_field' | 'particle_spring_force_diffusion_field_siren' | 'particle_spring_force_diffusion_field_siren_grad':
                 fig, ax = style.montage_figure()
                 if axis:
                     ax.xaxis.set_major_locator(plt.MaxNLocator(3))
