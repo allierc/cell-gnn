@@ -1,0 +1,130 @@
+# v3 — internal-state pipeline with the NEW dynamics:
+#
+#   ds/dt   = coeff_s * (c - s)                                       # linear relaxation toward c
+#   alpha_i = coeff_emit * (1 - s_i) * sigmoid(beta * (c_i - c_thr))  # smoothly gated emission
+#
+# The `(1 - s)` brake means a uniform-c regime saturates at
+#   c_eq ≈ coeff_emit / (coeff_emit + lambda_decay)
+# With coeff_emit=20, lambda=0.5 → c_eq ≈ 0.976 (near full saturation).
+# Most of the informative training signal is therefore in the early
+# transient — keep that in mind when reading the loss curves.
+#
+# Loss-weight schema bug fix is live (pde_weight, pde_reg_weight,
+# internal_weight all now actually applied).
+
+description: "Internal-state v3: linear relaxation + sigmoid-gated emission with (1-s) brake"
+dataset: "dicty_spring_force_rk4_diffusion_field_internal_v3"
+
+simulation:
+  dimension: 3
+  n_cells: 1000
+  n_cell_types: 1
+  n_frames: 8000
+  delta_t: 0.002
+  max_radius: 0.075
+  min_radius: 0
+  sigma: 0.005
+  boundary: "periodic"
+  dpos_init: 0
+  cell_params: [[50.0, 0.05, 50.0, 0.07, 0.001, 0.033]]
+  #              k_rep  r0   kadh  r_on  delta  mu_f
+  func_params: [["spring", 0, 0]]
+  noise_model_level: 0.0
+  integration: "Runge-Kutta"
+  field_params:
+    # --- diffusion-decay PDE ---
+    diffusion_coeff: 0.01
+    lambda_decay:    0.5
+    grid_resolution: 64
+    # legacy keys (unused by the new dynamics; kept so downstream code that
+    # does getattr(fp, 'source_strength', ...) doesn't surprise us)
+    source_strength: 0.0
+    source_fraction: 1.0
+    pulse_period: 0
+    pulse_duty: 1.0
+    # --- initial chemical seed (above c_threshold so emission can ignite) ---
+    center_0:
+      - [0.50, 0.50, 0.50]
+    amplitude: 0.05
+    sigma:     0.1
+    mu_chem:   0.1
+    chem_saturation_scale: null
+
+    # --- internal-state ODE knobs (NEW dynamics) ---
+    internal_coeff_s:     2.0          # ds/dt = coeff_s * (c - s)
+    internal_coeff_emit:  20.0         # alpha = coeff_emit * (1 - s) * sigmoid(...)
+    internal_c_threshold: 0.01
+    internal_c_sharpness: 200.0        # sigmoid β
+    internal_init_range:  [0.0, 1.0]
+
+    # --- model-side grid & deposit ---
+    model_grid_size: 32
+    model_source_sigma: 0.02
+
+graph_model:
+  cell_model_name: "particle_spring_force_diffusion_field_siren_grid_pde_internal"
+  prediction: "first_derivative"
+  input_size: 6
+  output_size: 3
+  hidden_dim: 128
+  n_layers: 5
+  aggr_type: "add"
+  embedding_dim: 2
+  update_type: "none"
+  # SIREN c-field net
+  n_layers_field: 5
+  hidden_dim_field: 128
+  omega_field: 30.0
+  # PDE MLP: [c, Laplacian(c), source] -> dc/dt
+  pde_hidden_dim: 32
+  pde_n_layers: 3
+  # Internal MLP: [s, c_local] -> ds/dt   (the only learnable part of the ODE law;
+  # ds/dt = coeff_s*(c-s) is a 2-input affine function — tiny capacity is plenty.)
+  internal_hidden_dim: 16
+  internal_n_layers: 2
+
+plotting:
+  colormap: "tab10"
+  arrow_length: 2
+  xlim: [0, 0.15]
+  invert_mlp1_sign: true
+
+inr:
+  inr_field_name: "velocity"
+  inr_type: "siren_txyz"
+  inr_gradient_mode: false
+  hidden_dim_inr: 64
+  n_layers_inr: 5
+  omega_inr: 60.0
+  inr_total_steps: 500000
+  inr_batch_size: 8
+  inr_learning_rate: 1.0e-5
+  inr_xy_period: 1.0
+  inr_t_period: 1.0
+
+training:
+  n_runs: 1
+  device: "auto"
+  n_epochs: 10
+  batch_size: 8
+  small_init_batch_size: False
+  sparsity: "replace_embedding_function"
+  sparsity_freq: 1
+  cluster_method: "distance_plot"
+  fix_cluster_embedding: True
+  rotation_augmentation: True
+  data_augmentation_loop: 20
+  learning_rate_start: 1.0E-4
+  learning_rate_embedding_start: 1.0E-5
+
+  # --- Loss weights (all honored after schema fix) ---
+  # Total loss = |v_pred - v_true|^2
+  #            + pde_weight      * sum_grid (dc/dt_siren - PDE_MLP(c, Lap c, s))^2
+  #            + pde_reg_weight  * mean_grid ReLU(-c)^2          # nonneg-c only
+  #            + internal_weight * sum_cells (lin_internal(s, c_local) - ds/dt_target)^2
+  pde_weight:      1.0e-3
+  pde_reg_weight:  1.0e-4
+  internal_weight: 1.0
+
+  rollout:
+  integration: "Runge-Kutta"

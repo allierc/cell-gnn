@@ -1,0 +1,94 @@
+# Diffusion-decay chemical field with SIREN scalar potential + autograd gradient
+# SIREN learns c(x,t), chemical force = grad_x(c) via torch.autograd
+# v2: saturating (Weber–Fechner) chemotaxis so chem force is bounded at pair-force scale
+description: "3D overdamped cells with spring forces + diffusion-decay field, saturating chemotaxis (GNN + SIREN grad)"
+dataset: "dicty_spring_force_rk4_diffusion_field_siren_grad_v2"
+
+simulation:
+  dimension: 3
+  n_cells: 1000
+  n_cell_types: 1
+  n_frames: 8000
+  delta_t: 0.002
+  max_radius: 0.075
+  min_radius: 0
+  sigma: 0.005
+  boundary: "periodic"
+  dpos_init: 0
+  cell_params: [[50.0, 0.05, 50.0, 0.07, 0.001, 0.033]]
+  #              k_rep  r0   kadh  r_on  delta  mu_f
+  func_params: [["spring", 0, 0]]
+  noise_model_level: 0.0
+  integration: "Runge-Kutta"
+  field_params:
+    # PDE: dc/dt = D * laplacian(c) - lambda * c + alpha * sum_i delta(x - x_i)
+    diffusion_coeff: 0.01        # D
+    lambda_decay: 0.1            # lambda
+    grid_resolution: 100           # grid points per axis
+    source_strength: 20.0        # alpha — chemical secretion rate per cell
+    # Pulsed-source settings: a random subset of cells emits in smooth Gaussian bursts.
+    source_fraction: 0.5         # fraction of cells that ever emit (chosen once, random)
+    pulse_period: 500            # steps per pulse cycle (0 → constant emission)
+    pulse_duty: 0.5              # pulse width as fraction of period (Gaussian σ = duty/2)
+    # Initial condition: zero field (built purely from cell sources)
+    center_0:
+      - [0.50, 0.50, 0.50]
+    amplitude: 0.0
+    sigma: 0.1
+    # Saturating (Weber–Fechner) chemotaxis:
+    #   F_chem = mu_chem * log(1 + |grad c| / g0) * grad c / |grad c|
+    # g0 should be tuned with the diagnostic cell in test_diffusion_field_generator.ipynb
+    # so that chem force magnitude matches pair force magnitude.
+    mu_chem: 0.1
+    chem_saturation_scale: 0.05  # g0 — placeholder, retune from diagnostic
+
+graph_model:
+  cell_model_name: "particle_spring_force_diffusion_field_siren_grad"
+  prediction: "first_derivative"
+  input_size: 6
+  output_size: 3
+  hidden_dim: 128
+  n_layers: 5
+  aggr_type: "add"
+  embedding_dim: 2
+  update_type: "none"
+  n_layers_field: 5
+  hidden_dim_field: 128
+  omega_field: 30.0
+
+plotting:
+  colormap: "tab10"
+  arrow_length: 2
+  xlim: [0, 0.15]
+  invert_mlp1_sign: true
+
+inr:
+  inr_field_name: "velocity"
+  inr_type: "siren_txyz"
+  inr_gradient_mode: false
+  hidden_dim_inr: 64
+  n_layers_inr: 5
+  omega_inr: 60.0
+  inr_total_steps: 500000
+  inr_batch_size: 8
+  inr_learning_rate: 1.0e-5
+  inr_xy_period: 1.0
+  inr_t_period: 1.0
+
+training:
+  n_runs: 1
+  device: "auto"
+  n_epochs: 10
+  batch_size: 8
+  small_init_batch_size: False
+  sparsity: "replace_embedding_function"
+  sparsity_freq: 1
+  cluster_method: "distance_plot"
+  fix_cluster_embedding: True
+  rotation_augmentation: True
+  data_augmentation_loop: 20
+  learning_rate_start: 1.0E-4
+  learning_rate_embedding_start: 1.0E-5
+
+  rollout:
+  integration: "Runge-Kutta"

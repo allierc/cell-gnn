@@ -62,8 +62,8 @@ def moving_gaussian_field(pos, t, field_params):
     return single_gaussian_field(pos, t, field_params)
 
 
-@register_simulator("particle_spring_force_dynamic_field", "particle_spring_force_dynamic_field_siren")
-class ParticleSpringForceDynamicField(nn.Module):
+@register_simulator("particle_spring_force_prescribed_field", "particle_spring_force_prescribed_field_siren", "particle_spring_force_prescribed_field_siren_grad")
+class ParticleSpringForcePrescribedField(nn.Module):
     """Overdamped cell dynamics with spring forces + chemotaxis from a moving chemical field.
 
     Chemical field is either a single moving Gaussian or a sum of multiple moving Gaussians

@@ -1,0 +1,118 @@
+# 2D version of the SIREN-on-grid + learned PDE MLP setup.
+#
+# Data:  400 cells in [0, 1]^2 (periodic). 10% of cells emit source in
+#        long-period pulses (pulse_period = 2000 steps, pulse_duty = 0.1).
+# Model: particle_spring_force_diffusion_field_siren_grid_pde
+#   - 128x128 fixed grid for SIREN + PDE MLP (2D is cheap, so finer grid OK).
+#   - CIC (trilinear -> bilinear in 2D) deposit from particles to grid.
+#   - Small MLP learns dc/dt = MLP(c, Laplacian(c), source) per grid cell.
+
+description: "2D overdamped cells + diffusion field (GNN + SIREN-on-grid + learned PDE MLP); 10% long-period-pulse emitters"
+dataset: "dicty_spring_force_rk4_diffusion_field_siren_grid_pde_2d_v1"
+
+simulation:
+  dimension: 2
+  n_cells: 400
+  n_cell_types: 1
+  n_frames: 8000
+  delta_t: 0.002
+  max_radius: 0.075
+  min_radius: 0
+  sigma: 0.005
+  boundary: "periodic"
+  dpos_init: 0
+  # Scaled slightly down from 3D: r0 = 0.04, r_on = 0.06 gives good packing
+  # at density = 400 cells / unit area (nearest-neighbour spacing ~ 0.05).
+  cell_params: [[50.0, 0.04, 50.0, 0.06, 0.001, 0.033]]
+  #              k_rep  r0   kadh  r_on  delta  mu_f
+  func_params: [["spring", 0, 0]]
+  noise_model_level: 0.0
+  integration: "Runge-Kutta"
+  field_params:
+    # PDE: dc/dt = D * Laplacian(c) - lambda * c + alpha * sum_{i in emitters} delta(x - x_i)
+    diffusion_coeff: 0.01
+    lambda_decay: 0.5
+    grid_resolution: 128           # generator's FFT grid (data side); 128^2 = 16k cells
+    source_strength: 20.0
+    # 10% of cells emit in LONG-PERIOD pulses.
+    # Over n_frames = 8000 with period = 2000 -> each emitter fires ~4 times total.
+    # Peak-time strength boosted by gain = 1 / pulse_duty = 10x so pulse-integrated
+    # dose stays comparable to continuous emission at source_strength.
+    source_fraction: 0.1           # 10% of cells chosen as emitters (fixed, seeded)
+    pulse_period: 2000             # steps per pulse cycle (long period)
+    pulse_duty: 0.1                # pulse width = 10% of period (Gaussian sigma = 50 steps)
+    # Initial field = 0 (built purely from cell sources)
+    center_0:
+      - [0.50, 0.50]
+    amplitude: 0.0
+    sigma: 0.1
+    mu_chem: 0.1
+    chem_saturation_scale: null    # linear chemotaxis: F_chem = mu_chem * grad c
+
+    # -------- Model-side grid parameters --------
+    model_grid_size: 128           # per-axis grid count used by the SIREN-on-grid model
+    # (Default if omitted: model_grid_size = min(grid_resolution, 48).)
+    # NOTE: model uses cloud-in-cell (bilinear) deposit from particles to
+    #       this grid -- no kernel width parameter needed.
+
+graph_model:
+  cell_model_name: "particle_spring_force_diffusion_field_siren_grid_pde"
+  prediction: "first_derivative"
+  input_size: 5                    # dimension + 1 + embedding_dim = 2 + 1 + 2
+  output_size: 2                   # 2D velocity vector
+  hidden_dim: 128
+  n_layers: 5
+  aggr_type: "add"
+  embedding_dim: 2
+  update_type: "none"
+  # SIREN scalar field net: (x, y, t) -> c
+  n_layers_field: 5
+  hidden_dim_field: 128
+  omega_field: 30.0
+  # PDE MLP: [c, Laplacian(c), source] -> dc/dt
+  pde_hidden_dim: 32
+  pde_n_layers: 3
+
+plotting:
+  colormap: "tab10"
+  arrow_length: 2
+  xlim: [0, 0.15]
+  invert_mlp1_sign: true
+
+inr:
+  inr_field_name: "velocity"
+  inr_type: "siren_txyz"
+  inr_gradient_mode: false
+  hidden_dim_inr: 64
+  n_layers_inr: 5
+  omega_inr: 60.0
+  inr_total_steps: 500000
+  inr_batch_size: 8
+  inr_learning_rate: 1.0e-5
+  inr_xy_period: 1.0
+  inr_t_period: 1.0
+
+training:
+  n_runs: 1
+  device: "auto"
+  n_epochs: 10
+  batch_size: 8
+  small_init_batch_size: False
+  sparsity: "replace_embedding_function"
+  sparsity_freq: 1
+  cluster_method: "distance_plot"
+  fix_cluster_embedding: True
+  rotation_augmentation: True
+  data_augmentation_loop: 20
+  learning_rate_start: 1.0E-4
+  learning_rate_embedding_start: 1.0E-5
+
+  # --- PDE residual loss weight ---
+  # Total loss = |v_pred - v_true|^2
+  #            + pde_weight * sum_grid (dc/dt_siren - MLP(c, Lap c, s))^2
+  #            + pde_reg_weight * (ReLU(-c)^2 + c^2)
+  pde_weight: 1.0e-3
+  pde_reg_weight: 1.0e-4
+
+  rollout:
+  integration: "Runge-Kutta"

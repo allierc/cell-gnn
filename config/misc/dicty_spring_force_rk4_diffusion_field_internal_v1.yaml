@@ -1,0 +1,128 @@
+# Diffusion-decay chemical field with a per-cell internal state s_i
+# (fluorescent reporter), gated emission, and a learned ds/dt MLP.
+#
+# Data side (generator):
+#   alpha_i  = source_strength * sigmoid(s_i)               # KNOWN sigmoid
+#   ds_i/dt  = ( sigmoid(a*(c_i - c_half)) - s_i ) / tau    # ground-truth ODE
+#
+# Model side:
+#   - SIREN c-on-grid + PDE MLP (same as ..._siren_grid_pde)
+#   - Source on grid uses the KNOWN sigmoid: alpha_i = source_strength * sigmoid(s_i_obs)
+#   - Internal MLP learns ds/dt from (s_i_obs, c_local) — supervised against
+#     the analytic target stored in state.field[:, 2].
+#
+# Saved per-cell observables (state.field):
+#   [c_i, s_i, ds_i/dt_target]
+
+description: "3D overdamped cells + diffusion field + internal-state s_i (GNN + SIREN-on-grid + PDE MLP + internal-ODE MLP)"
+dataset: "dicty_spring_force_rk4_diffusion_field_internal_v1"
+
+simulation:
+  dimension: 3
+  n_cells: 1000
+  n_cell_types: 1
+  n_frames: 8000
+  delta_t: 0.002
+  max_radius: 0.075
+  min_radius: 0
+  sigma: 0.005
+  boundary: "periodic"
+  dpos_init: 0
+  cell_params: [[50.0, 0.05, 50.0, 0.07, 0.001, 0.033]]
+  #              k_rep  r0   kadh  r_on  delta  mu_f
+  func_params: [["spring", 0, 0]]
+  noise_model_level: 0.0
+  integration: "Runge-Kutta"
+  field_params:
+    diffusion_coeff: 0.01
+    lambda_decay: 0.5
+    grid_resolution: 100
+    source_strength: 20.0
+    # Pulse schedule is unused — emission is gated by sigmoid(s_i).
+    source_fraction: 1.0
+    pulse_period: 0
+    pulse_duty: 1.0
+    center_0:
+      - [0.50, 0.50, 0.50]
+    amplitude: 0.0
+    sigma: 0.1
+    mu_chem: 0.1
+    chem_saturation_scale: null
+
+    # ---------- Internal-state ODE (ground truth) ----------
+    # ds/dt = (sigmoid(a*(c - c_half)) - s) / tau
+    internal_a:        50.0     # sigmoid sharpness on c
+    internal_c_half:   0.05     # half-activation concentration (pick near median c)
+    internal_tau:      0.5      # relaxation time (physical units, not steps)
+    internal_init_range: [0.0, 1.0]   # uniform init for s_i
+
+    # ---------- Model-side grid & deposit ----------
+    model_grid_size: 32
+    model_source_sigma: 0.02
+
+graph_model:
+  cell_model_name: "particle_spring_force_diffusion_field_siren_grid_pde_internal"
+  prediction: "first_derivative"
+  input_size: 6
+  output_size: 3
+  hidden_dim: 128
+  n_layers: 5
+  aggr_type: "add"
+  embedding_dim: 2
+  update_type: "none"
+  # SIREN c-field net
+  n_layers_field: 5
+  hidden_dim_field: 128
+  omega_field: 30.0
+  # PDE MLP: [c, Laplacian(c), source] -> dc/dt
+  pde_hidden_dim: 32
+  pde_n_layers: 3
+  # Internal-state MLP: [s, c_local] -> ds/dt   (sigmoid is hard-coded; only this is learned)
+  internal_hidden_dim: 16
+  internal_n_layers: 2
+
+plotting:
+  colormap: "tab10"
+  arrow_length: 2
+  xlim: [0, 0.15]
+  invert_mlp1_sign: true
+
+inr:
+  inr_field_name: "velocity"
+  inr_type: "siren_txyz"
+  inr_gradient_mode: false
+  hidden_dim_inr: 64
+  n_layers_inr: 5
+  omega_inr: 60.0
+  inr_total_steps: 500000
+  inr_batch_size: 8
+  inr_learning_rate: 1.0e-5
+  inr_xy_period: 1.0
+  inr_t_period: 1.0
+
+training:
+  n_runs: 1
+  device: "auto"
+  n_epochs: 10
+  batch_size: 8
+  small_init_batch_size: False
+  sparsity: "replace_embedding_function"
+  sparsity_freq: 1
+  cluster_method: "distance_plot"
+  fix_cluster_embedding: True
+  rotation_augmentation: True
+  data_augmentation_loop: 20
+  learning_rate_start: 1.0E-4
+  learning_rate_embedding_start: 1.0E-5
+
+  # --- Loss weights ---
+  # Total loss = |v_pred - v_true|^2
+  #            + pde_weight      * sum_grid (dc/dt_siren - PDE_MLP(c, Lap c, s))^2
+  #            + pde_reg_weight  * (ReLU(-c)^2 + c^2)
+  #            + internal_weight * sum_cells (INTERNAL_MLP(s, c_local) - ds/dt_target)^2
+  pde_weight: 1.0e-3
+  pde_reg_weight: 1.0e-4
+  internal_weight: 1.0e-2
+
+  rollout:
+  integration: "Runge-Kutta"

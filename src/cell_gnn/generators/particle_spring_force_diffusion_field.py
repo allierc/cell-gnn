@@ -255,7 +255,10 @@ def deposit_to_grid_weighted(pos, strength, resolution, dimension, device):
 
 @register_simulator("particle_spring_force_diffusion_field",
                      "particle_spring_force_diffusion_field_siren",
-                     "particle_spring_force_diffusion_field_siren_grad")
+                     "particle_spring_force_diffusion_field_siren_pde",
+                     "particle_spring_force_diffusion_field_siren_grad",
+                     "particle_spring_force_diffusion_field_siren_grad_pde",
+                     "particle_spring_force_diffusion_field_siren_grid_pde")
 class ParticleSpringForceDiffusionField(nn.Module):
     r"""Overdamped cell dynamics with spring forces + chemotaxis from a
     diffusing chemical field.
@@ -291,6 +294,11 @@ class ParticleSpringForceDiffusionField(nn.Module):
         Width of initial Gaussian(s).
     mu_chem : float
         Chemotactic coupling strength.
+    chem_saturation_scale : float, optional
+        If set, the chemotactic force saturates as
+        ``F_chem = mu_chem * log(1 + |grad c| / g0) * grad c / |grad c|``
+        (Weber–Fechner form). Pick ``g0`` to match the pair-force scale.
+        If omitted or None, the linear form ``mu_chem * grad c`` is used.
 
     Cell parameters p = (k_rep, r0, kadh, r_on, delta, mu_f).
     """
@@ -431,7 +439,24 @@ class ParticleSpringForceDiffusionField(nn.Module):
         field_gradient = interp_periodic(grad_grid, state.pos, res)      # (N, dim)
 
         mu_chem = self.field_params['mu_chem']
-        d_pos = d_pos + mu_chem * field_gradient
+        g0 = self.field_params.get('chem_saturation_scale', None)
+        sat_type = self.field_params.get('chem_saturation_type', 'log')
+        if g0 is not None and g0 > 0:
+            g_norm = field_gradient.norm(dim=1, keepdim=True).clamp_min(1e-12)
+            g_hat = field_gradient / g_norm
+            if sat_type == 'mm':
+                # Michaelis–Menten: mu_chem * |g| / (|g| + g0) * g_hat
+                chem_force = mu_chem * (g_norm / (g_norm + g0)) * g_hat
+            elif sat_type == 'sigmoid':
+                # Shifted sigmoid: mu_chem * (2*sigmoid(|g|) - 1) * g_hat
+                # Zero at |g|=0, saturates at mu_chem for large |g|. No g0 scaling.
+                chem_force = mu_chem * (2 * torch.sigmoid(g_norm) - 1) * g_hat
+            else:
+                # Weber–Fechner log form (default): mu_chem * log1p(|g|/g0) * g_hat
+                chem_force = mu_chem * torch.log1p(g_norm / g0) * g_hat
+        else:
+            chem_force = mu_chem * field_gradient
+        d_pos = d_pos + chem_force
 
         state.field = field_value.unsqueeze(-1)  # (N, 1) to match convention
 

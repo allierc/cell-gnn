@@ -104,16 +104,19 @@ def increasing_batch_size(batch_size):
 
 def set_trainable_parameters(model=[], lr_embedding=[], lr=[], lr_update=[], lr_W=[], lr_modulation=[], learning_rate_nnr=[], learning_rate_edge_embedding=[]):
 
-    trainable_params = [param for _, param in model.named_parameters() if param.requires_grad]
-    n_total_params = sum(p.numel() for p in trainable_params) + torch.numel(model.a)
+    # Unwrap torch.compile wrapper to avoid duplicate parameters
+    raw_model = model._orig_mod if hasattr(model, '_orig_mod') else model
+
+    trainable_params = [param for _, param in raw_model.named_parameters() if param.requires_grad]
+    n_total_params = sum(p.numel() for p in trainable_params) + torch.numel(raw_model.a)
 
     if lr_update == []:
         lr_update = lr
 
     # Use fused Adam when parameters are on CUDA — avoids launching many small kernels
-    _use_fused = model.a.is_cuda
-    optimizer = torch.optim.Adam([model.a], lr=lr_embedding, fused=_use_fused)
-    for name, parameter in model.named_parameters():
+    _use_fused = raw_model.a.is_cuda
+    optimizer = torch.optim.Adam([raw_model.a], lr=lr_embedding, fused=_use_fused)
+    for name, parameter in raw_model.named_parameters():
         if (parameter.requires_grad) & (name != 'a'):
             if (name == 'b') or ('lin_modulation' in name):
                 optimizer.add_param_group({'params': parameter, 'lr': lr_modulation})

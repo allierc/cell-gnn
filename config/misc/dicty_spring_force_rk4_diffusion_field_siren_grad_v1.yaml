@@ -35,6 +35,10 @@ simulation:
     amplitude: 0.0
     sigma: 0.1
     mu_chem: 0.1
+    # Saturating (Weber–Fechner) chemotaxis:
+    #   F_chem = mu_chem * log(1 + |grad c| / g0) * grad c / |grad c|
+    # Omit / set null to use the linear form.
+    chem_saturation_scale: null
 
 graph_model:
   cell_model_name: "particle_spring_force_diffusion_field_siren_grad"

@@ -32,8 +32,9 @@ def _discover_simulators():
     import cell_gnn.generators.boids_ode  # noqa: F401
     import cell_gnn.generators.gravity_ode  # noqa: F401
     import cell_gnn.generators.particle_spring_force_ode  # noqa: F401
-    import cell_gnn.generators.particle_spring_force_dynamic_field  # noqa: F401
+    import cell_gnn.generators.particle_spring_force_prescribed_field  # noqa: F401
     import cell_gnn.generators.particle_spring_force_diffusion_field  # noqa: F401
+    import cell_gnn.generators.particle_spring_force_diffusion_field_internal  # noqa: F401
 
 
 def _discover_models():
@@ -45,6 +46,10 @@ def _discover_models():
     import cell_gnn.models.cell_field_gnn  # noqa: F401
     import cell_gnn.models.cell_gnn_siren_field  # noqa: F401
     import cell_gnn.models.cell_gnn_siren_grad_field  # noqa: F401
+    import cell_gnn.models.cell_gnn_siren_field_pde  # noqa: F401
+    import cell_gnn.models.cell_gnn_siren_grad_field_pde  # noqa: F401
+    import cell_gnn.models.cell_gnn_siren_grid_pde  # noqa: F401
+    import cell_gnn.models.cell_gnn_siren_grid_pde_internal  # noqa: F401
 
 
 def register_simulator(*names: str):

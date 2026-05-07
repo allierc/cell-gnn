@@ -107,6 +107,28 @@ class FieldParamsConfig(BaseModel):
     lambda_decay: float = 0.1
     grid_resolution: int = 64
     source_strength: float = 0.0
+    # Pulsed-source parameters (used by the generator when source_strength > 0).
+    # source_fraction: fraction of cells that ever emit (chosen once, seeded).
+    # pulse_period:    steps per pulse cycle; 0 -> constant emission.
+    # pulse_duty:      pulse width as fraction of period (Gaussian sigma = duty/2).
+    source_fraction: float = 1.0
+    pulse_period: Optional[int] = 0
+    pulse_duty: float = 1.0
+    # Saturating chemotaxis (Weber-Fechner). None/<=0 -> linear F_chem = mu * grad c.
+    chem_saturation_scale: Optional[float] = None
+    chem_saturation_type: str = "log"
+    # Grid-based SIREN model (siren_grid_pde): per-axis grid count for the
+    # fixed mesh used by the model-side PDE MLP.
+    model_grid_size: Optional[int] = None
+
+    # Per-cell internal state (..._internal simulators):
+    #   ds/dt   = coeff_s * (c - s)
+    #   alpha_i = coeff_emit * (1 - s) * sigmoid(c_sharpness * (c - c_threshold))
+    internal_coeff_s: float = 2.0
+    internal_coeff_emit: float = 20.0
+    internal_c_threshold: float = 0.01
+    internal_c_sharpness: float = 200.0
+    internal_init_range: list[float] = [0.0, 1.0]
 
 
 class SimulationConfig(BaseModel):
@@ -233,6 +255,19 @@ class GraphModelConfig(BaseModel):
 
     kernel_type: str = "mlp"
 
+    # Internal-state MLP: (s, c_local) -> ds/dt for ..._internal models.
+    internal_hidden_dim: int = 16
+    internal_n_layers: int = 2
+
+    # SIREN scalar c-field net (..._siren / ..._siren_grid_pde / ..._internal)
+    n_layers_field: int = 3
+    hidden_dim_field: int = 128
+    omega_field: float = 30.0
+
+    # PDE MLP head: [c, Laplacian(c), source] -> dc/dt
+    pde_hidden_dim: int = 32
+    pde_n_layers: int = 3
+
 
 class PlottingConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", protected_namespaces=())
@@ -317,6 +352,18 @@ class TrainingConfig(BaseModel):
     time_step: int = 1
     do_tracking: bool = False
     coeff_model_a: float = 0
+
+    # Loss weight for the internal-state ODE residual
+    # (..._internal models that stash ``last_internal_residual``).
+    internal_weight: float = 0.0
+
+    # Loss weights for the diffusion-field PDE residual & regularisation
+    # (..._pde models that stash ``last_pde_residual`` / ``last_pde_reg``).
+    # Without these in the schema, YAML keys with the same names were silently
+    # dropped and the trainer fell back to the defaults below — which were
+    # numerically very different from typical YAML values.
+    pde_weight: float = 1.0
+    pde_reg_weight: float = 0.0
     coeff_continuous: float = 0
 
     recursive_sequence: str = ""

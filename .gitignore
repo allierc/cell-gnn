@@ -19,4 +19,9 @@ log/
 *.log
 *.sh
 *.mp4
+*.tex
+*.pdf
+*.png
+*.jpg
+*.jpeg
 .ipynb_checkpoints/

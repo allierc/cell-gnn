@@ -9,7 +9,7 @@ from cell_gnn.graph_utils import remove_self_loops, scatter_aggregate
 from cell_gnn.models.registry import register_model
 
 
-@register_model("particle_spring_force_dynamic_field_siren", "particle_spring_force_diffusion_field_siren")
+@register_model("particle_spring_force_prescribed_field_siren", "particle_spring_force_diffusion_field_siren")
 class CellGNNSirenField(nn.Module):
     """GNN for pair forces + SIREN for learning the dynamic vector field.
 

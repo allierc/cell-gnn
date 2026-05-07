@@ -59,7 +59,7 @@ def choose_model(config=[], W=[], device=[]):
             noise_model_level = config.simulation.noise_model_level if hasattr(config.simulation, 'noise_model_level') else 0
             model = sim_cls(aggr_type=aggr_type, p=p, bc_dpos=bc_dpos, dimension=dimension,
                             noise_model_level=noise_model_level)
-        case 'particle_spring_force_dynamic_field' | 'particle_spring_force_dynamic_field_siren':
+        case 'particle_spring_force_prescribed_field' | 'particle_spring_force_prescribed_field_siren' | 'particle_spring_force_prescribed_field_siren_grad':
             noise_model_level = config.simulation.noise_model_level if hasattr(config.simulation, 'noise_model_level') else 0
             fp = config.simulation.field_params
             field_type = getattr(fp, 'field_type', None) or 'single'
@@ -78,7 +78,7 @@ def choose_model(config=[], W=[], device=[]):
             }
             model = sim_cls(aggr_type=aggr_type, p=p, bc_dpos=bc_dpos, dimension=dimension,
                             noise_model_level=noise_model_level, field_params=field_params)
-        case 'particle_spring_force_diffusion_field' | 'particle_spring_force_diffusion_field_siren' | 'particle_spring_force_diffusion_field_siren_grad':
+        case 'particle_spring_force_diffusion_field' | 'particle_spring_force_diffusion_field_siren' | 'particle_spring_force_diffusion_field_siren_pde' | 'particle_spring_force_diffusion_field_siren_grad' | 'particle_spring_force_diffusion_field_siren_grad_pde' | 'particle_spring_force_diffusion_field_siren_grid_pde' | 'particle_spring_force_diffusion_field_internal' | 'particle_spring_force_diffusion_field_siren_grid_pde_internal':
             noise_model_level = config.simulation.noise_model_level if hasattr(config.simulation, 'noise_model_level') else 0
             fp = config.simulation.field_params
             field_params = {
@@ -90,6 +90,16 @@ def choose_model(config=[], W=[], device=[]):
                 'lambda_decay':    fp.lambda_decay,
                 'grid_resolution': fp.grid_resolution,
                 'source_strength': getattr(fp, 'source_strength', 0.0),
+                'source_fraction': getattr(fp, 'source_fraction', 1.0),
+                'pulse_period':    getattr(fp, 'pulse_period', 0),
+                'pulse_duty':      getattr(fp, 'pulse_duty', 1.0),
+                'chem_saturation_scale': getattr(fp, 'chem_saturation_scale', None),
+                'chem_saturation_type':  getattr(fp, 'chem_saturation_type', 'log'),
+                'internal_coeff_s':     getattr(fp, 'internal_coeff_s', 2.0),
+                'internal_coeff_emit':  getattr(fp, 'internal_coeff_emit', 20.0),
+                'internal_c_threshold': getattr(fp, 'internal_c_threshold', 0.01),
+                'internal_c_sharpness': getattr(fp, 'internal_c_sharpness', 200.0),
+                'internal_init_range':  tuple(getattr(fp, 'internal_init_range', (0.0, 1.0))),
                 'delta_t':         config.simulation.delta_t,
                 'periodic':        config.simulation.boundary == 'periodic',
             }

@@ -1,0 +1,113 @@
+# v6 — SHARP / FAST passive field (high frequency in space AND time).
+#
+# Narrow initial Gaussian + meaningful diffusion + meaningful decay.
+# Field dramatically reshapes during the run; sharp spatial gradient at t=0.
+#
+# Numbers:
+#   σ₀ = 0.04            (narrow, sharp blob)
+#   D  = 0.005           (moderate diffusion)
+#   λ  = 0.2             (fast decay; e^{-λT} = e^{-3.2} ≈ 0.041)
+#   T  = n_frames * dt = 16
+#   σ(T) ≈ √(0.0016 + 0.16) ≈ 0.402
+#   peak(T) ≈ exp(-3.2) * (0.04/0.402)³ ≈ 0.041 * 9.85e-4 ≈ 4.0e-5
+#                                            (peak drops ~25,000× over the run!)
+#
+# This is purposely a hard SIREN target:
+#   - very sharp at t=0 (∇c|max ~ peak/σ ~ 25)
+#   - decays AND spreads fast → strong space *and* time variation
+#   - by mid-run the field is already diffuse + small
+#
+# Bumped omega_field=80 and used a wider/deeper SIREN to handle the
+# higher spatial frequency content.
+
+description: "SHARP field: σ=0.04, D=5e-3, λ=0.2 — narrow blob, fast diffusion+decay"
+dataset: "dicty_spring_force_rk4_diffusion_field_siren_grid_pde_v6"
+
+simulation:
+  dimension: 3
+  n_cells: 1000
+  n_cell_types: 1
+  n_frames: 8000
+  delta_t: 0.002
+  max_radius: 0.075
+  min_radius: 0
+  sigma: 0.005
+  boundary: "periodic"
+  dpos_init: 0
+  cell_params: [[50.0, 0.05, 50.0, 0.07, 0.001, 0.033]]
+  func_params: [["spring", 0, 0]]
+  noise_model_level: 0.0
+  integration: "Runge-Kutta"
+  field_params:
+    diffusion_coeff: 0.005        # moderate diffusion
+    lambda_decay:    0.2          # FAST decay
+    grid_resolution: 100
+    source_strength: 0.0
+    source_fraction: 0.0
+    pulse_period: 0
+    pulse_duty: 1.0
+    center_0:
+      - [0.50, 0.50, 0.50]
+    amplitude: 1.0
+    sigma:     0.04               # NARROW blob → sharp in space
+    mu_chem:   0.1
+    chem_saturation_scale: null
+
+    model_grid_size: 32
+    model_source_sigma: 0.02
+
+graph_model:
+  cell_model_name: "particle_spring_force_diffusion_field_siren_grid_pde"
+  prediction: "first_derivative"
+  input_size: 6
+  output_size: 3
+  hidden_dim: 128
+  n_layers: 5
+  aggr_type: "add"
+  embedding_dim: 2
+  update_type: "none"
+  # High SIREN capacity — field has rapid spatial+temporal variation.
+  n_layers_field: 6
+  hidden_dim_field: 192
+  omega_field: 80.0
+  pde_hidden_dim: 32
+  pde_n_layers: 3
+
+plotting:
+  colormap: "tab10"
+  arrow_length: 2
+  xlim: [0, 0.15]
+  invert_mlp1_sign: true
+
+inr:
+  inr_field_name: "velocity"
+  inr_type: "siren_txyz"
+  inr_gradient_mode: false
+  hidden_dim_inr: 128
+  n_layers_inr: 5
+  omega_inr: 80.0
+  inr_total_steps: 500000
+  inr_batch_size: 8
+  inr_learning_rate: 1.0e-5
+  inr_xy_period: 1.0
+  inr_t_period: 1.0
+
+training:
+  n_runs: 1
+  device: "auto"
+  n_epochs: 10
+  batch_size: 8
+  small_init_batch_size: False
+  sparsity: "replace_embedding_function"
+  sparsity_freq: 1
+  cluster_method: "distance_plot"
+  fix_cluster_embedding: True
+  rotation_augmentation: True
+  data_augmentation_loop: 20
+  learning_rate_start: 1.0E-4
+  learning_rate_embedding_start: 1.0E-5
+  pde_weight:     1.0e-3
+  pde_reg_weight: 1.0e-4
+
+  rollout:
+  integration: "Runge-Kutta"

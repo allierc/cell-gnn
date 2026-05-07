@@ -9,7 +9,7 @@ from cell_gnn.graph_utils import remove_self_loops, scatter_aggregate
 from cell_gnn.models.registry import register_model
 
 
-@register_model("particle_spring_force_diffusion_field_siren_grad")
+@register_model("particle_spring_force_prescribed_field_siren_grad", "particle_spring_force_diffusion_field_siren_grad")
 class CellGNNSirenGradField(nn.Module):
     """GNN for pair forces + SIREN scalar field with autograd gradient.
 

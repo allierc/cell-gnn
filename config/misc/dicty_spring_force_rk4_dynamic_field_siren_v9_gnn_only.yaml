@@ -1,0 +1,55 @@
+# GNN-only baseline trained on dynamic field v9 data (8 moving Gaussian blobs)
+# Uses the SAME generated data as v9 but trains WITHOUT the SIREN field branch.
+description: "GNN-only baseline on dynamic field v9 data (no field branch)"
+dataset: "dicty_spring_force_rk4_dynamic_field_siren_v9"
+
+simulation:
+  dimension: 3
+  n_cells: 1000
+  n_cell_types: 1
+  n_frames: 8000
+  delta_t: 0.002
+  max_radius: 0.075
+  min_radius: 0
+  sigma: 0.005
+  boundary: "periodic"
+  dpos_init: 0
+  cell_params: [[50.0, 0.05, 50.0, 0.07, 0.001, 0.033]]
+  func_params: [["spring", 0, 0]]
+  noise_model_level: 0.0
+  integration: "Runge-Kutta"
+
+graph_model:
+  cell_model_name: "particle_spring_force_ode"
+  prediction: "first_derivative"
+  input_size: 6
+  output_size: 3
+  hidden_dim: 128
+  n_layers: 5
+  aggr_type: "add"
+  embedding_dim: 2
+  update_type: "none"
+
+plotting:
+  colormap: "tab10"
+  arrow_length: 2
+  xlim: [0, 0.12]
+  invert_mlp1_sign: true
+
+training:
+  n_runs: 1
+  device: "cuda:2"
+  n_epochs: 20
+  batch_size: 8
+  small_init_batch_size: False
+  sparsity: "replace_embedding_function"
+  sparsity_freq: 1
+  cluster_method: "distance_plot"
+  fix_cluster_embedding: True
+  rotation_augmentation: True
+  data_augmentation_loop: 20
+  learning_rate_start: 1.0E-4
+  learning_rate_embedding_start: 1.0E-5
+
+  rollout:
+  integration: "Runge-Kutta"

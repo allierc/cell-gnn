@@ -25,28 +25,23 @@ from cell_gnn.utils import to_numpy
 #  Diffusion field ground-truth replay
 # --------------------------------------------------------------------------- #
 
-def _replay_diffusion_field(config, k_frame, grid_pos, device):
+def _replay_diffusion_field(config, k_frame, grid_pos, device, return_scalar=False):
     """Replay the diffusion PDE up to frame *k_frame* and return the true
-    chemotactic velocity ``mu_chem * grad(c)`` evaluated at *grid_pos*.
+    chemotactic force ``F_chem`` evaluated at *grid_pos*.
 
-    Loads saved cell positions from zarr, deposits sources each frame,
-    and advances the spectral solver to reconstruct the concentration field.
-
-    Parameters
-    ----------
-    config : CellGNNConfig
-    k_frame : int  — frame index to reconstruct
-    grid_pos : (M, dim) tensor — positions at which to evaluate the field velocity
-    device : torch.device
+    Honors pulsed sources (``source_fraction``, ``pulse_period``, ``pulse_duty``)
+    and the saturating-log chemotaxis (``chem_saturation_scale``) when those are
+    set in ``field_params``.
 
     Returns
     -------
-    v_true : (M, dim) tensor — ``mu_chem * grad(c)`` at *grid_pos*
+    v_true : (M, dim) tensor — chemotactic force at *grid_pos*
+    c_true : (M, 1) tensor (only if return_scalar=True) — scalar c at grid_pos
     """
     from cell_gnn.zarr_io import load_simulation_data
     from cell_gnn.generators.particle_spring_force_diffusion_field import (
-        init_gaussian_field, build_spectral_decay, deposit_to_grid, spectral_gradient,
-        interp_periodic,
+        init_gaussian_field, build_spectral_decay, deposit_to_grid,
+        deposit_to_grid_weighted, spectral_gradient, interp_periodic,
     )
 
     sim = config.simulation
@@ -60,65 +55,227 @@ def _replay_diffusion_field(config, k_frame, grid_pos, device):
     alpha = fp.source_strength
     mu_chem = fp.mu_chem
 
+    # Detect the ..._internal model family — emission rule there is
+    #   alpha_i = coeff_emit * (1 - s_i) * sigmoid(beta * (c_i - c_threshold))
+    # NOT the constant-rate / pulsed-rate scheme used by the older models.
+    model_name = getattr(getattr(config, 'graph_model', None), 'cell_model_name', '') or ''
+    is_internal = '_internal' in model_name
+
+    # Optional pulsed-source params (defaults match the generator's no-pulse path)
+    source_fraction = getattr(fp, 'source_fraction', 1.0)
+    pulse_period = getattr(fp, 'pulse_period', 0)
+    pulse_duty = getattr(fp, 'pulse_duty', 1.0)
+    g0 = getattr(fp, 'chem_saturation_scale', None)
+
+    # Internal-state emission knobs (used only on the is_internal branch).
+    coeff_emit_int  = float(getattr(fp, 'internal_coeff_emit', 20.0))
+    c_threshold_int = float(getattr(fp, 'internal_c_threshold', 0.01))
+    c_sharpness_int = float(getattr(fp, 'internal_c_sharpness', 200.0))
+
     center_0 = torch.tensor(fp.center_0, dtype=torch.float32, device=device)
 
-    # initialise field grid
+    # initialise field grid + decay operator
     field_grid = init_gaussian_field(
         res, dim, center_0, fp.amplitude, fp.sigma,
         sim.boundary == 'periodic', device)
     decay = build_spectral_decay(res, dim, D, lam, dt, device)
 
-    # load saved positions
+    # load saved positions (and `field` channels for the internal-model branch)
     x_ts = load_simulation_data(f'graphs_data/{dataset_name}/x_list_0', dim)
 
+    # Lazily build pulsed source mask + phases using the same seed as data gen
+    source_mask = None
+    source_phase = None
+    seed = getattr(sim, 'seed', 0)
+
     s = [res] * dim
-    # replay PDE up to k_frame
     for k in range(k_frame + 1):
         pos_k = x_ts.frame(k).pos.to(device)
-        if alpha > 0:
-            source = deposit_to_grid(pos_k, alpha * dt, res, dim, device)
-            field_grid = field_grid + source
+
+        if is_internal:
+            # Match the simulator's per-step emission rule. The simulator uses
+            #   c_at_pos_old: c sampled from the running grid at the *current*
+            #                 cell positions (BEFORE this step's spectral update),
+            #   s_in        : s entering this step  =  s at end of previous step,
+            #                 saved as state.field[:, 1] at frame max(0, k-1).
+            if coeff_emit_int > 0:
+                k_in = max(0, k - 1)
+                fld_in = x_ts.frame(k_in).field
+                if fld_in is None or fld_in.shape[-1] < 2:
+                    # No saved s — fall back to s=0.5 (mid of init range).
+                    s_in = torch.full((pos_k.shape[0],), 0.5, device=device, dtype=field_grid.dtype)
+                else:
+                    s_in = fld_in[:, 1].to(device).to(field_grid.dtype)
+
+                c_at_pos = interp_periodic(field_grid, pos_k, res)
+                gate = torch.sigmoid(c_sharpness_int * (c_at_pos - c_threshold_int))
+                emit = coeff_emit_int * (1.0 - s_in) * gate
+                src = deposit_to_grid_weighted(pos_k, emit * dt, res, dim, device)
+                field_grid = field_grid + src
+
+        elif alpha > 0:
+            if source_mask is None:
+                n = pos_k.shape[0]
+                gen = torch.Generator(device=pos_k.device)
+                gen.manual_seed(int(seed))
+                n_src = max(1, int(round(source_fraction * n)))
+                perm = torch.randperm(n, generator=gen, device=pos_k.device)
+                source_mask = torch.zeros(n, dtype=torch.bool, device=pos_k.device)
+                source_mask[perm[:n_src]] = True
+                source_phase = torch.rand(n, generator=gen, device=pos_k.device)
+
+            if pulse_period and pulse_period > 0:
+                phase = (k / float(pulse_period) + source_phase) % 1.0
+                d_ = torch.minimum(phase, 1.0 - phase)
+                sigma_p = max(pulse_duty, 1e-3) / 2.0
+                pulse = torch.exp(-0.5 * (d_ / sigma_p) ** 2) * source_mask.float()
+                gain = 1.0 / max(pulse_duty, 1e-3)
+                active = pulse > 1e-4
+                if active.any():
+                    strength = alpha * dt * gain * pulse[active]
+                    src = deposit_to_grid_weighted(pos_k[active], strength, res, dim, device)
+                    field_grid = field_grid + src
+            else:
+                emit_pos = pos_k[source_mask] if source_fraction < 1.0 else pos_k
+                src = deposit_to_grid(emit_pos, alpha * dt, res, dim, device)
+                field_grid = field_grid + src
+
         C_hat = torch.fft.rfftn(field_grid, s=s)
         C_hat = C_hat * decay
         field_grid = torch.fft.irfftn(C_hat, s=s)
 
-    # compute gradient on grid and interpolate to query positions
+    # gradient + interpolation
     C_hat = torch.fft.rfftn(field_grid, s=s)
     grad_grid = spectral_gradient(C_hat, res, dim, device)
 
     grid_pos_dev = grid_pos.to(device)
     field_gradient = interp_periodic(grad_grid, grid_pos_dev, res)  # (M, dim)
-    v_true = mu_chem * field_gradient
+
+    # Saturating-log chemotaxis if g0 is set, else linear.
+    if g0 is not None and g0 > 0:
+        g_norm = field_gradient.norm(dim=1, keepdim=True).clamp_min(1e-12)
+        v_true = mu_chem * torch.log1p(g_norm / g0) * (field_gradient / g_norm)
+    else:
+        v_true = mu_chem * field_gradient
+
+    if return_scalar:
+        c_true = interp_periodic(field_grid, grid_pos_dev, res).unsqueeze(-1)  # (M, 1)
+        return v_true, c_true
     return v_true
 
 
-def _eval_siren_field(model, pos, k_frame, ynorm, device):
+def _get_plot_grid(model, dimension, device, z_target=0.5, fallback_n=24):
+    """Pick the spatial sampling grid for field plots.
+
+    If the model exposes ``grid_coords`` (e.g. CellGNNSirenGridPDE), use that exact
+    grid so the plot matches the surface the model was trained on. For 3D models,
+    take a z-slice closest to ``z_target``. Otherwise build a uniform fallback grid.
+
+    Returns
+    -------
+    pos      : (M, D) tensor of query points (flat)
+    n_x, n_y : ints, used to reshape (M,) → (n_y, n_x) for imshow
+    extent   : (xmin, xmax, ymin, ymax) for imshow
+    z_slice  : float, the actual z used (for plot titles)
+    """
+    if hasattr(model, 'grid_coords') and hasattr(model, 'grid_shape'):
+        gc = model.grid_coords        # (G, D), built with indexing='ij' (x outermost)
+        gs = model.grid_shape         # tuple of length D
+        if dimension == 3 and len(gs) == 3:
+            n_x, n_y, n_z = gs
+            coords3 = gc.view(n_x, n_y, n_z, 3)             # (Nx, Ny, Nz, 3)
+            zs = coords3[0, 0, :, 2]                         # z values along k-axis
+            z_idx = int(torch.argmin(torch.abs(zs - z_target)).item())
+            z_slice = float(zs[z_idx].item())
+            slab = coords3[:, :, z_idx, :]                   # (Nx, Ny, 3) — i=x, j=y
+            # Reorder to (Ny, Nx, 3) so flatten gives (y outer, x inner) = same as fallback
+            slab = slab.permute(1, 0, 2).contiguous()        # (Ny, Nx, 3)
+            pos = slab.reshape(-1, 3).to(device)
+            x_lo = float(coords3[0, 0, 0, 0].item()); x_hi = float(coords3[-1, 0, 0, 0].item())
+            y_lo = float(coords3[0, 0, 0, 1].item()); y_hi = float(coords3[0, -1, 0, 1].item())
+            return pos, n_x, n_y, (x_lo, x_hi, y_lo, y_hi), z_slice
+        elif dimension == 2 and len(gs) == 2:
+            n_x, n_y = gs
+            coords2 = gc.view(n_x, n_y, 2).permute(1, 0, 2).contiguous()   # (Ny, Nx, 2)
+            pos = coords2.reshape(-1, 2).to(device)
+            x_lo = float(coords2[0, 0, 0].item()); x_hi = float(coords2[0, -1, 0].item())
+            y_lo = float(coords2[0, 0, 1].item()); y_hi = float(coords2[-1, 0, 1].item())
+            return pos, n_x, n_y, (x_lo, x_hi, y_lo, y_hi), None
+
+    # Fallback: ad-hoc uniform grid in [0, 1]
+    n = fallback_n
+    xs = torch.linspace(0.0, 1.0, n, device=device)
+    ys = torch.linspace(0.0, 1.0, n, device=device)
+    grid_x, grid_y = torch.meshgrid(xs, ys, indexing='xy')
+    if dimension == 3:
+        pos = torch.stack([
+            grid_x.reshape(-1),
+            grid_y.reshape(-1),
+            torch.full_like(grid_x.reshape(-1), float(z_target)),
+        ], dim=1)
+        return pos, n, n, (0.0, 1.0, 0.0, 1.0), float(z_target)
+    else:
+        pos = torch.stack([grid_x.reshape(-1), grid_y.reshape(-1)], dim=1)
+        return pos, n, n, (0.0, 1.0, 0.0, 1.0), None
+
+
+def _eval_siren_field(model, pos, k_frame, ynorm, device, return_scalar=False):
     """Evaluate the SIREN field branch, handling both vector and scalar-grad models.
 
     For vector SIREN (out_features == dim): direct output.
     For scalar SIREN (out_features == 1): compute grad_x(c) via autograd.
+    If the model has learnable ``log_mu_chem``/``log_chem_g0`` (PDE model), apply
+    the saturating-log chemotaxis to match the generator.
 
-    Returns (M, dim) numpy array of the learned field velocity.
+    Returns
+    -------
+    v_learned : (M, dim) np.ndarray
+    c_learned : (M, 1) np.ndarray (only if return_scalar=True, else None for vector SIREN)
     """
-    is_grad_model = 'siren_grad' in model.model
+    is_grad_model = ('siren_grad' in model.model) or ('siren_grid' in model.model)
     k_tensor = torch.full((pos.shape[0], 1), float(k_frame), dtype=pos.dtype, device=device)
 
     if is_grad_model:
         pos_field = pos.detach().requires_grad_(True)
-        siren_input = torch.cat([pos_field, k_tensor / model.n_frames], dim=1)
+        # Use physical time if the model was trained with it (PDE model), else normalized.
+        if hasattr(model, 'log_mu_chem'):
+            t_in = (k_tensor * model.delta_t).detach()
+        else:
+            t_in = k_tensor / model.n_frames
+        siren_input = torch.cat([pos_field, t_in], dim=1)
         c = model.siren_field(siren_input)  # (M, 1)
         grad_c = torch.autograd.grad(
             outputs=c, inputs=pos_field,
             grad_outputs=torch.ones_like(c),
             create_graph=False, retain_graph=False,
         )[0]  # (M, dim)
-        v_learned = grad_c * float(ynorm)
-        return to_numpy(v_learned.detach())
+
+        # Match model.forward: linear or saturating depending on the model.
+        if hasattr(model, 'log_mu_chem'):
+            mu_chem = torch.exp(model.log_mu_chem)
+            if getattr(model, 'linear_chemotaxis', False):
+                v_learned = mu_chem * grad_c
+            elif hasattr(model, 'log_chem_g0'):
+                g0 = torch.exp(model.log_chem_g0)
+                g_norm = grad_c.norm(dim=1, keepdim=True).clamp_min(1e-12)
+                v_learned = mu_chem * torch.log1p(g_norm / g0) * (grad_c / g_norm)
+            else:
+                v_learned = mu_chem * grad_c
+        else:
+            v_learned = grad_c * float(ynorm)
+
+        v_np = to_numpy(v_learned.detach())
+        if return_scalar:
+            return v_np, to_numpy(c.detach())
+        return v_np
     else:
         with torch.no_grad():
             siren_input = torch.cat([pos, k_tensor / model.n_frames], dim=1)
             v_learned = model.siren_field(siren_input) * float(ynorm)
-        return to_numpy(v_learned)
+        v_np = to_numpy(v_learned)
+        if return_scalar:
+            return v_np, None
+        return v_np
 
 
 # --------------------------------------------------------------------------- #
@@ -155,7 +312,7 @@ def build_edge_features(rr, embedding, model_name, max_radius, dimension=2, batc
         r = rr_exp.unsqueeze(-1) / max_radius  # (N, n_pts, 1)
 
         match model_name:
-            case 'arbitrary_ode' | 'arbitrary_field_ode' | 'particle_spring_force_ode' | 'particle_spring_force_dynamic_field' | 'particle_spring_force_dynamic_field_siren' | 'particle_spring_force_diffusion_field' | 'particle_spring_force_diffusion_field_siren' | 'particle_spring_force_diffusion_field_siren_grad':
+            case 'arbitrary_ode' | 'arbitrary_field_ode' | 'particle_spring_force_ode' | 'particle_spring_force_prescribed_field' | 'particle_spring_force_prescribed_field_siren' | 'particle_spring_force_prescribed_field_siren_grad' | 'particle_spring_force_diffusion_field' | 'particle_spring_force_diffusion_field_siren' | 'particle_spring_force_diffusion_field_siren_pde' | 'particle_spring_force_diffusion_field_siren_grad' | 'particle_spring_force_diffusion_field_siren_grad_pde' | 'particle_spring_force_diffusion_field_siren_grid_pde' | 'particle_spring_force_diffusion_field_internal' | 'particle_spring_force_diffusion_field_siren_grid_pde_internal':
                 return torch.cat((delta_pos, r, emb_exp), dim=-1)
             case 'boids_ode' | 'boids_field_ode':
                 r_abs = torch.abs(rr_exp).unsqueeze(-1) / max_radius
@@ -174,7 +331,7 @@ def build_edge_features(rr, embedding, model_name, max_radius, dimension=2, batc
         r = rr[:, None] / max_radius
 
         match model_name:
-            case 'arbitrary_ode' | 'arbitrary_field_ode' | 'particle_spring_force_ode' | 'particle_spring_force_dynamic_field' | 'particle_spring_force_dynamic_field_siren' | 'particle_spring_force_diffusion_field' | 'particle_spring_force_diffusion_field_siren' | 'particle_spring_force_diffusion_field_siren_grad':
+            case 'arbitrary_ode' | 'arbitrary_field_ode' | 'particle_spring_force_ode' | 'particle_spring_force_prescribed_field' | 'particle_spring_force_prescribed_field_siren' | 'particle_spring_force_prescribed_field_siren_grad' | 'particle_spring_force_diffusion_field' | 'particle_spring_force_diffusion_field_siren' | 'particle_spring_force_diffusion_field_siren_pde' | 'particle_spring_force_diffusion_field_siren_grad' | 'particle_spring_force_diffusion_field_siren_grad_pde' | 'particle_spring_force_diffusion_field_siren_grid_pde' | 'particle_spring_force_diffusion_field_internal' | 'particle_spring_force_diffusion_field_siren_grid_pde_internal':
                 return torch.cat((delta_pos, r, embedding), dim=1)
             case 'boids_ode' | 'boids_field_ode':
                 r_abs = torch.abs(rr[:, None]) / max_radius
@@ -406,65 +563,102 @@ def plot_siren_field_fixed(model, config, log_dir, epoch, N, ynorm, device, k_fr
     if k_frame is None:
         k_frame = sim.n_frames // 2
 
-    grid_n = 24
-    xs = torch.linspace(0.0, 1.0, grid_n, device=device)
-    ys = torch.linspace(0.0, 1.0, grid_n, device=device)
-    grid_x, grid_y = torch.meshgrid(xs, ys, indexing='xy')
-    z_slice = 0.5
-    if dimension == 3:
-        pos = torch.stack([
-            grid_x.reshape(-1),
-            grid_y.reshape(-1),
-            torch.full_like(grid_x.reshape(-1), z_slice),
-        ], dim=1)
-    else:
-        pos = torch.stack([grid_x.reshape(-1), grid_y.reshape(-1)], dim=1)
+    # Use the model's training grid (siren_grid_pde) when available; otherwise
+    # fall back to a uniform 24×24 z=0.5 slab.
+    pos, grid_n_x, grid_n_y, extent, z_slice = _get_plot_grid(
+        model, dimension, device, z_target=0.5, fallback_n=24)
     pos_np = to_numpy(pos)
+    grid_n = grid_n_x  # back-compat alias used in the existing reshape calls
 
     # --- learned ---
-    v_learned_np = _eval_siren_field(model, pos, k_frame, ynorm, device)
-
-    # --- true: mu_chem * grad C ---
-    # For diffusion-field models the ground truth is PDE-computed (not analytic),
-    # so we skip the true/error panels and only show the learned field.
     cell_model = config.graph_model.cell_model_name
     is_diffusion = 'diffusion_field' in cell_model
     t_phys = float(k_frame) * sim.delta_t
 
     if is_diffusion:
-        # Replay PDE to reconstruct ground truth
+        # --- learned: force vector + scalar c (saturating if the model has it) ---
+        v_learned_np, c_learned_np = _eval_siren_field(
+            model, pos, k_frame, ynorm, device, return_scalar=True)
+
+        # --- true: PDE replay (honors pulsed sources + chem_saturation_scale) ---
         with torch.no_grad():
-            v_true = _replay_diffusion_field(config, k_frame, pos, device)
+            v_true, c_true = _replay_diffusion_field(
+                config, k_frame, pos, device, return_scalar=True)
         v_true_np = to_numpy(v_true)
+        c_true_np = to_numpy(c_true)
 
         common_scale = max(np.linalg.norm(v_true_np, axis=1).max() * 10.0, 1e-6)
 
-        fig, axes = plt.subplots(1, 3, figsize=(15, 5), facecolor=style.background)
+        # Grid-reshape for colormap plots — flatten order is (y outer, x inner)
+        c_true_img = c_true_np.reshape(grid_n_y, grid_n_x)
+        if c_learned_np is not None:
+            c_learned_img = c_learned_np.reshape(grid_n_y, grid_n_x)
+        else:
+            c_learned_img = None
 
-        # learned
-        ax = axes[0]
+        # Common vmin/vmax so colormaps are comparable
+        c_vmin = float(min(c_true_img.min(),
+                           c_learned_img.min() if c_learned_img is not None else c_true_img.min()))
+        c_vmax = float(max(c_true_img.max(),
+                           c_learned_img.max() if c_learned_img is not None else c_true_img.max()))
+
+        # 3-row layout: forces | scalar c | errors (force + c)
+        fig, axes = plt.subplots(3, 2, figsize=(10, 15), facecolor=style.background)
+
+        # --- Row 1: force vectors (learned | true) ---
+        ax = axes[0, 0]
         ax.quiver(pos_np[:, 0], pos_np[:, 1], v_learned_np[:, 0], v_learned_np[:, 1],
                   angles='xy', scale_units='xy', scale=common_scale,
                   color=style.foreground, width=0.004)
-        ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_aspect('equal')
-        ax.set_title(f'learned siren_field  (k={k_frame}, t={t_phys:.2f})', color=style.foreground)
+        ax.set_xlim(extent[0], extent[1]); ax.set_ylim(extent[2], extent[3]); ax.set_aspect('equal')
+        z_str = f', z={z_slice:.3f}' if z_slice is not None else ''
+        ax.set_title(f'learned F_chem  (k={k_frame}, t={t_phys:.2f}{z_str})', color=style.foreground)
 
-        # true
-        ax = axes[1]
+        ax = axes[0, 1]
         ax.quiver(pos_np[:, 0], pos_np[:, 1], v_true_np[:, 0], v_true_np[:, 1],
                   angles='xy', scale_units='xy', scale=common_scale,
                   color=style.foreground, width=0.004)
-        ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_aspect('equal')
-        ax.set_title(f'true mu_chem*grad C  (PDE replay)', color=style.foreground)
+        ax.set_xlim(extent[0], extent[1]); ax.set_ylim(extent[2], extent[3]); ax.set_aspect('equal')
+        ax.set_title('true F_chem  (PDE replay)', color=style.foreground)
 
-        # error magnitude
-        ax = axes[2]
-        err = np.linalg.norm(v_learned_np - v_true_np, axis=1).reshape(grid_n, grid_n)
-        im = ax.imshow(err, origin='lower', extent=[0, 1, 0, 1], cmap='magma')
+        # --- Row 2: scalar c colormaps (learned | true) ---
+        ax = axes[1, 0]
+        if c_learned_img is not None:
+            im = ax.imshow(c_learned_img, origin='lower', extent=list(extent),
+                           cmap='viridis', vmin=c_vmin, vmax=c_vmax)
+            plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        else:
+            ax.text(0.5, 0.5, 'scalar c N/A\n(vector SIREN)', ha='center', va='center')
         ax.set_aspect('equal')
-        ax.set_title(f'|learned - true|  (mean={err.mean():.4f})', color=style.foreground)
+        ax.set_title('learned c(x, t)', color=style.foreground)
+
+        ax = axes[1, 1]
+        im = ax.imshow(c_true_img, origin='lower', extent=list(extent),
+                       cmap='viridis', vmin=c_vmin, vmax=c_vmax)
         plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        ax.set_aspect('equal')
+        ax.set_title('true c(x, t)  (PDE replay)', color=style.foreground)
+
+        # --- Row 3: error colormaps (|F| error | c error) ---
+        ax = axes[2, 0]
+        err_F = np.linalg.norm(v_learned_np - v_true_np, axis=1).reshape(grid_n_y, grid_n_x)
+        im = ax.imshow(err_F, origin='lower', extent=list(extent), cmap='magma')
+        plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        ax.set_aspect('equal')
+        ax.set_title(f'|F_learned - F_true|  (mean={err_F.mean():.4f})', color=style.foreground)
+
+        ax = axes[2, 1]
+        if c_learned_img is not None:
+            err_c = np.abs(c_learned_img - c_true_img)
+            im = ax.imshow(err_c, origin='lower', extent=list(extent), cmap='magma')
+            plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+            ax.set_title(f'|c_learned - c_true|  (mean={err_c.mean():.4f})', color=style.foreground)
+        else:
+            ax.text(0.5, 0.5, 'c error N/A', ha='center', va='center')
+            ax.set_title('c error', color=style.foreground)
+        ax.set_aspect('equal')
     else:
+        v_learned_np = _eval_siren_field(model, pos, k_frame, ynorm, device)
         # Analytic moving-Gaussian ground truth
         # Supports both single-source and multi-source field.
         import math
@@ -517,7 +711,7 @@ def plot_siren_field_fixed(model, config, log_dir, epoch, N, ynorm, device, k_fr
                   angles='xy', scale_units='xy', scale=common_scale,
                   color=style.foreground, width=0.004)
         ax.plot(cx_w, cy_w, '*', markersize=15, color='red')
-        ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_aspect('equal')
+        ax.set_xlim(extent[0], extent[1]); ax.set_ylim(extent[2], extent[3]); ax.set_aspect('equal')
         ax.set_title(f'learned siren_field  (k={k_frame}, t={t_phys:.2f})', color=style.foreground)
 
         # true
@@ -526,13 +720,13 @@ def plot_siren_field_fixed(model, config, log_dir, epoch, N, ynorm, device, k_fr
                   angles='xy', scale_units='xy', scale=common_scale,
                   color=style.foreground, width=0.004)
         ax.plot(cx_w, cy_w, '*', markersize=15, color='red')
-        ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_aspect('equal')
+        ax.set_xlim(extent[0], extent[1]); ax.set_ylim(extent[2], extent[3]); ax.set_aspect('equal')
         ax.set_title(f'true mu_chem*grad C  (mu={mu_chem})', color=style.foreground)
 
         # error magnitude
         ax = axes[2]
-        err = np.linalg.norm(v_learned_np - v_true_np, axis=1).reshape(grid_n, grid_n)
-        im = ax.imshow(err, origin='lower', extent=[0, 1, 0, 1], cmap='magma')
+        err = np.linalg.norm(v_learned_np - v_true_np, axis=1).reshape(grid_n_y, grid_n_x)
+        im = ax.imshow(err, origin='lower', extent=list(extent), cmap='magma')
         ax.set_aspect('equal')
         ax.set_title(f'|learned - true|  (mean={err.mean():.4f})', color=style.foreground)
         plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
@@ -541,6 +735,186 @@ def plot_siren_field_fixed(model, config, log_dir, epoch, N, ynorm, device, k_fr
     plt.tight_layout()
     style.savefig(fig, f"./{log_dir}/tmp_training/field_fixed/{epoch}_{N}.png")
     plt.close(fig)
+
+
+def plot_siren_field_time_evolve(model, config, log_dir, epoch, ynorm, device, frame_step=10):
+    """Save a sequence of (learned vs true) field snapshots over time.
+
+    For diffusion-field models, runs ONE pass of the PDE replay, collects c_true and
+    c_learned at the model's z-slice grid every `frame_step` frames, then writes one
+    PNG per frame to ``tmp_training/field_time_evolve/epoch_{epoch}/frame_{k:05d}.png``
+    with shared color scale across all frames. The PNGs can be turned into a movie:
+
+        ffmpeg -framerate 30 -pattern_type glob -i 'frame_*.png' \
+               -c:v libx264 -pix_fmt yuv420p evolve.mp4
+
+    Skips silently for non-diffusion models (no analytic GT replay implemented here).
+    """
+    if not hasattr(model, 'siren_field'):
+        return
+    cell_model = config.graph_model.cell_model_name
+    if 'diffusion_field' not in cell_model:
+        return  # only diffusion case has the PDE replay
+
+    import os
+    from cell_gnn.zarr_io import load_simulation_data
+    from cell_gnn.generators.particle_spring_force_diffusion_field import (
+        init_gaussian_field, build_spectral_decay,
+        deposit_to_grid, deposit_to_grid_weighted, interp_periodic,
+    )
+
+    style = default_style
+    sim = config.simulation
+    fp = sim.field_params
+    dimension = sim.dimension
+
+    # Plotting grid (matches the model's training grid when available)
+    pos, grid_n_x, grid_n_y, extent, z_slice = _get_plot_grid(
+        model, dimension, device, z_target=0.5, fallback_n=24)
+    pos_np = to_numpy(pos)
+
+    out_dir = os.path.join(log_dir, 'tmp_training', 'field_time_evolve', f'epoch_{epoch}')
+    os.makedirs(out_dir, exist_ok=True)
+
+    # ── PDE state setup (mirrors _replay_diffusion_field but stepped once over n_frames) ──
+    res = fp.grid_resolution
+    dt = sim.delta_t
+    D = fp.diffusion_coeff
+    lam = fp.lambda_decay
+    alpha = fp.source_strength
+    source_fraction = getattr(fp, 'source_fraction', 1.0)
+    pulse_period = getattr(fp, 'pulse_period', 0)
+    pulse_duty = getattr(fp, 'pulse_duty', 1.0)
+    seed = getattr(sim, 'seed', 0)
+    center_0 = torch.tensor(fp.center_0, dtype=torch.float32, device=device)
+
+    # ..._internal models replace the constant/pulsed source with a sigmoid-gated,
+    # (1-s)-scaled per-cell emission. We pull s_i from the saved time series.
+    is_internal = '_internal' in cell_model
+    coeff_emit_int  = float(getattr(fp, 'internal_coeff_emit', 20.0))
+    c_threshold_int = float(getattr(fp, 'internal_c_threshold', 0.01))
+    c_sharpness_int = float(getattr(fp, 'internal_c_sharpness', 200.0))
+
+    field_grid = init_gaussian_field(
+        res, dimension, center_0, fp.amplitude, fp.sigma,
+        sim.boundary == 'periodic', device)
+    decay = build_spectral_decay(res, dimension, D, lam, dt, device)
+    s = [res] * dimension
+
+    dataset_name = config.dataset
+    x_ts = load_simulation_data(f'graphs_data/{dataset_name}/x_list_0', dimension)
+
+    source_mask = None
+    source_phase = None
+
+    # Pass 1: simulate forward, collect c_true and c_learned at grid every frame_step
+    snapshot_ks = []
+    c_true_list = []
+    c_learned_list = []
+
+    for k in range(sim.n_frames):
+        pos_k = x_ts.frame(k).pos.to(device)
+
+        # emit
+        if is_internal:
+            # Sigmoid-gated, (1-s)-scaled emission. s entering step k is the
+            # saved s at frame max(0, k-1).
+            if coeff_emit_int > 0:
+                k_in = max(0, k - 1)
+                fld_in = x_ts.frame(k_in).field
+                if fld_in is None or fld_in.shape[-1] < 2:
+                    s_in = torch.full((pos_k.shape[0],), 0.5, device=device, dtype=field_grid.dtype)
+                else:
+                    s_in = fld_in[:, 1].to(device).to(field_grid.dtype)
+                c_at_pos = interp_periodic(field_grid, pos_k, res)
+                gate = torch.sigmoid(c_sharpness_int * (c_at_pos - c_threshold_int))
+                emit = coeff_emit_int * (1.0 - s_in) * gate
+                src = deposit_to_grid_weighted(pos_k, emit * dt, res, dimension, device)
+                field_grid = field_grid + src
+        elif alpha > 0:
+            if source_mask is None:
+                n = pos_k.shape[0]
+                gen = torch.Generator(device=pos_k.device)
+                gen.manual_seed(int(seed))
+                n_src = max(1, int(round(source_fraction * n)))
+                perm = torch.randperm(n, generator=gen, device=pos_k.device)
+                source_mask = torch.zeros(n, dtype=torch.bool, device=pos_k.device)
+                source_mask[perm[:n_src]] = True
+                source_phase = torch.rand(n, generator=gen, device=pos_k.device)
+
+            if pulse_period and pulse_period > 0:
+                phase = (k / float(pulse_period) + source_phase) % 1.0
+                d_ = torch.minimum(phase, 1.0 - phase)
+                sigma_p = max(pulse_duty, 1e-3) / 2.0
+                pulse = torch.exp(-0.5 * (d_ / sigma_p) ** 2) * source_mask.float()
+                gain = 1.0 / max(pulse_duty, 1e-3)
+                active = pulse > 1e-4
+                if active.any():
+                    strength = alpha * dt * gain * pulse[active]
+                    src = deposit_to_grid_weighted(pos_k[active], strength, res, dimension, device)
+                    field_grid = field_grid + src
+            else:
+                emit_pos = pos_k[source_mask] if source_fraction < 1.0 else pos_k
+                src = deposit_to_grid(emit_pos, alpha * dt, res, dimension, device)
+                field_grid = field_grid + src
+
+        # diffusion + decay step (spectral)
+        C_hat = torch.fft.rfftn(field_grid, s=s)
+        C_hat = C_hat * decay
+        field_grid = torch.fft.irfftn(C_hat, s=s)
+
+        if k % frame_step == 0:
+            # true c at plotting grid
+            c_t = interp_periodic(field_grid, pos.to(device), res)  # (M,)
+            c_true_list.append(to_numpy(c_t))
+            # learned c at plotting grid
+            _, c_l = _eval_siren_field(model, pos, k, ynorm, device, return_scalar=True)
+            c_learned_list.append(c_l.squeeze(-1) if c_l is not None and c_l.ndim > 1 else c_l)
+            snapshot_ks.append(k)
+
+    # Shared color scale across all frames
+    c_concat = np.concatenate(
+        [c.ravel() for c in c_true_list]
+        + [c.ravel() for c in c_learned_list if c is not None]
+    )
+    c_vmin = float(c_concat.min())
+    c_vmax = float(c_concat.max())
+
+    # Pass 2: render PNGs with shared scale
+    for k, c_t, c_l in zip(snapshot_ks, c_true_list, c_learned_list):
+        c_true_img = c_t.reshape(grid_n_y, grid_n_x)
+        c_learned_img = c_l.reshape(grid_n_y, grid_n_x) if c_l is not None else None
+
+        fig, axes = plt.subplots(1, 3, figsize=(15, 5), facecolor=style.background)
+
+        ax = axes[0]
+        if c_learned_img is not None:
+            im = ax.imshow(c_learned_img, origin='lower', extent=list(extent),
+                           cmap='viridis', vmin=c_vmin, vmax=c_vmax)
+            plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        ax.set_aspect('equal')
+        ax.set_title(f'learned c  (k={k}, t={k*dt:.2f})', color=style.foreground)
+
+        ax = axes[1]
+        im = ax.imshow(c_true_img, origin='lower', extent=list(extent),
+                       cmap='viridis', vmin=c_vmin, vmax=c_vmax)
+        plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        ax.set_aspect('equal')
+        ax.set_title('true c (PDE replay)', color=style.foreground)
+
+        ax = axes[2]
+        if c_learned_img is not None:
+            err = np.abs(c_learned_img - c_true_img)
+            im = ax.imshow(err, origin='lower', extent=list(extent), cmap='magma')
+            plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+            ax.set_title(f'|err|  mean={err.mean():.4f}', color=style.foreground)
+        ax.set_aspect('equal')
+
+        plt.tight_layout()
+        style.savefig(fig, os.path.join(out_dir, f'frame_{k:05d}.png'))
+        plt.close(fig)
+
+    print(f'[field_time_evolve] saved {len(snapshot_ks)} frames to {out_dir}')
 
 
 def plot_siren_field_slice(model, config, log_dir, epoch, N, ynorm, device, n_time_snapshots=4):
@@ -560,20 +934,12 @@ def plot_siren_field_slice(model, config, log_dir, epoch, N, ynorm, device, n_ti
     fp = sim.field_params
     dimension = sim.dimension
 
-    grid_n = 24
-    xs = torch.linspace(0.0, 1.0, grid_n, device=device)
-    ys = torch.linspace(0.0, 1.0, grid_n, device=device)
-    grid_x, grid_y = torch.meshgrid(xs, ys, indexing='xy')
-    z_slice = 0.5
-    if dimension == 3:
-        pos = torch.stack([
-            grid_x.reshape(-1),
-            grid_y.reshape(-1),
-            torch.full_like(grid_x.reshape(-1), z_slice),
-        ], dim=1)
-    else:
-        pos = torch.stack([grid_x.reshape(-1), grid_y.reshape(-1)], dim=1)
+    # Use the model's training grid (siren_grid_pde) when available; otherwise
+    # fall back to a uniform 24×24 z=0.5 slab.
+    pos, grid_n_x, grid_n_y, extent, z_slice = _get_plot_grid(
+        model, dimension, device, z_target=0.5, fallback_n=24)
     pos_np = to_numpy(pos)
+    grid_n = grid_n_x  # back-compat alias
 
     # Time snapshots evenly spread across the trajectory
     k_frames = np.linspace(0, sim.n_frames - 1, n_time_snapshots).astype(int)
@@ -582,43 +948,100 @@ def plot_siren_field_slice(model, config, log_dir, epoch, N, ynorm, device, n_ti
     is_diffusion = 'diffusion_field' in cell_model
 
     if is_diffusion:
-        # Diffusion field: replay PDE to get ground truth (2 rows: learned + true)
-        fig, axes = plt.subplots(2, n_time_snapshots,
-                                  figsize=(4 * n_time_snapshots, 8),
+        # 5 rows: learned F | true F | learned c | true c | |F error|
+        # Columns = time snapshots.
+        fig, axes = plt.subplots(5, n_time_snapshots,
+                                  figsize=(4 * n_time_snapshots, 18),
                                   facecolor=style.background)
+        if n_time_snapshots == 1:
+            axes = axes.reshape(5, 1)
 
-        common_scale = None
-        for col, k_frame in enumerate(k_frames):
-            v_learned_np = _eval_siren_field(model, pos, k_frame, ynorm, device)
-
+        # First pass: compute everything so we can use shared color limits
+        v_learned_all = []
+        v_true_all = []
+        c_learned_all = []
+        c_true_all = []
+        t_phys_all = []
+        for k_frame in k_frames:
+            v_l, c_l = _eval_siren_field(
+                model, pos, k_frame, ynorm, device, return_scalar=True)
             with torch.no_grad():
-                v_true = _replay_diffusion_field(config, k_frame, pos, device)
-            v_true_np = to_numpy(v_true)
-            t_phys = float(k_frame) * sim.delta_t
+                v_t, c_t = _replay_diffusion_field(
+                    config, k_frame, pos, device, return_scalar=True)
+            v_learned_all.append(v_l)
+            v_true_all.append(to_numpy(v_t))
+            c_learned_all.append(c_l)
+            c_true_all.append(to_numpy(c_t))
+            t_phys_all.append(float(k_frame) * sim.delta_t)
 
-            if common_scale is None:
-                mag = np.linalg.norm(v_true_np, axis=1).max()
-                common_scale = max(mag * 10.0, 1e-6)
+        # Shared scales
+        all_mags = np.concatenate([np.linalg.norm(v, axis=1) for v in v_true_all])
+        common_scale = max(all_mags.max() * 10.0, 1e-6)
 
-            # learned (top row)
+        c_concat = np.concatenate(
+            [c.ravel() for c in c_true_all]
+            + [c.ravel() for c in c_learned_all if c is not None]
+        )
+        c_vmin = float(c_concat.min())
+        c_vmax = float(c_concat.max())
+
+        for col, k_frame in enumerate(k_frames):
+            v_learned_np = v_learned_all[col]
+            v_true_np = v_true_all[col]
+            c_learned_np = c_learned_all[col]
+            c_true_np = c_true_all[col]
+            t_phys = t_phys_all[col]
+
+            # Row 0: learned F quiver
             ax = axes[0, col]
             ax.quiver(pos_np[:, 0], pos_np[:, 1], v_learned_np[:, 0], v_learned_np[:, 1],
                       angles='xy', scale_units='xy', scale=common_scale,
                       color=style.foreground, width=0.004)
-            ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_aspect('equal')
-            ax.set_title(f'learned  k={k_frame}  t={t_phys:.2f}', color=style.foreground, fontsize=10)
+            ax.set_xlim(extent[0], extent[1]); ax.set_ylim(extent[2], extent[3]); ax.set_aspect('equal')
+            ax.set_title(f'learned F  k={k_frame}  t={t_phys:.2f}', color=style.foreground, fontsize=10)
 
-            # true (bottom row)
+            # Row 1: true F quiver
             ax = axes[1, col]
             ax.quiver(pos_np[:, 0], pos_np[:, 1], v_true_np[:, 0], v_true_np[:, 1],
                       angles='xy', scale_units='xy', scale=common_scale,
                       color=style.foreground, width=0.004)
-            ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_aspect('equal')
-            err = np.linalg.norm(v_learned_np - v_true_np, axis=1).mean()
-            ax.set_title(f'true  k={k_frame}  err={err:.4f}', color=style.foreground, fontsize=10)
+            ax.set_xlim(extent[0], extent[1]); ax.set_ylim(extent[2], extent[3]); ax.set_aspect('equal')
+            ax.set_title(f'true F  k={k_frame}', color=style.foreground, fontsize=10)
 
-        axes[0, 0].set_ylabel('learned siren_field', color=style.foreground)
-        axes[1, 0].set_ylabel('true mu_chem*grad C  (PDE)', color=style.foreground)
+            # Row 2: learned c
+            ax = axes[2, col]
+            if c_learned_np is not None:
+                img = c_learned_np.reshape(grid_n_y, grid_n_x)
+                im = ax.imshow(img, origin='lower', extent=list(extent),
+                               cmap='viridis', vmin=c_vmin, vmax=c_vmax)
+                plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+            else:
+                ax.text(0.5, 0.5, 'c N/A', ha='center', va='center')
+            ax.set_aspect('equal')
+            ax.set_title('learned c', color=style.foreground, fontsize=10)
+
+            # Row 3: true c
+            ax = axes[3, col]
+            img_t = c_true_np.reshape(grid_n_y, grid_n_x)
+            im = ax.imshow(img_t, origin='lower', extent=list(extent),
+                           cmap='viridis', vmin=c_vmin, vmax=c_vmax)
+            plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+            ax.set_aspect('equal')
+            ax.set_title('true c', color=style.foreground, fontsize=10)
+
+            # Row 4: |F error|
+            ax = axes[4, col]
+            err = np.linalg.norm(v_learned_np - v_true_np, axis=1).reshape(grid_n_y, grid_n_x)
+            im = ax.imshow(err, origin='lower', extent=list(extent), cmap='magma')
+            plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+            ax.set_aspect('equal')
+            ax.set_title(f'|F err|  mean={err.mean():.4f}', color=style.foreground, fontsize=10)
+
+        axes[0, 0].set_ylabel('learned F_chem', color=style.foreground)
+        axes[1, 0].set_ylabel('true F_chem (PDE)', color=style.foreground)
+        axes[2, 0].set_ylabel('learned c', color=style.foreground)
+        axes[3, 0].set_ylabel('true c', color=style.foreground)
+        axes[4, 0].set_ylabel('|F error|', color=style.foreground)
     else:
         center_0 = torch.tensor(fp.center_0, dtype=pos.dtype, device=device)
         velocity = torch.tensor(fp.velocity, dtype=pos.dtype, device=device)
@@ -677,7 +1100,7 @@ def plot_siren_field_slice(model, config, log_dir, epoch, N, ynorm, device, n_ti
             else:
                 cx_w, cy_w = cx, cy
             ax.plot(cx_w, cy_w, '*', markersize=12, color='red')
-            ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_aspect('equal')
+            ax.set_xlim(extent[0], extent[1]); ax.set_ylim(extent[2], extent[3]); ax.set_aspect('equal')
             ax.set_title(f'learned  k={k_frame}  t={t_phys:.2f}', color=style.foreground, fontsize=10)
 
             # true (bottom row)
@@ -686,7 +1109,7 @@ def plot_siren_field_slice(model, config, log_dir, epoch, N, ynorm, device, n_ti
                       angles='xy', scale_units='xy', scale=common_scale,
                       color=style.foreground, width=0.004)
             ax.plot(cx_w, cy_w, '*', markersize=12, color='red')
-            ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_aspect('equal')
+            ax.set_xlim(extent[0], extent[1]); ax.set_ylim(extent[2], extent[3]); ax.set_aspect('equal')
             err = np.linalg.norm(v_learned_np - v_true_np, axis=1).mean()
             ax.set_title(f'true  k={k_frame}  err={err:.4f}', color=style.foreground, fontsize=10)
 
@@ -848,7 +1271,7 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
     else:
         match model_config.cell_model_name:
 
-            case 'arbitrary_ode' | 'arbitrary_field_ode' | 'gravity_ode' | 'particle_spring_force_ode' | 'particle_spring_force_dynamic_field' | 'particle_spring_force_dynamic_field_siren' | 'particle_spring_force_diffusion_field' | 'particle_spring_force_diffusion_field_siren' | 'particle_spring_force_diffusion_field_siren_grad':
+            case 'arbitrary_ode' | 'arbitrary_field_ode' | 'gravity_ode' | 'particle_spring_force_ode' | 'particle_spring_force_prescribed_field' | 'particle_spring_force_prescribed_field_siren' | 'particle_spring_force_prescribed_field_siren_grad' | 'particle_spring_force_diffusion_field' | 'particle_spring_force_diffusion_field_siren' | 'particle_spring_force_diffusion_field_siren_pde' | 'particle_spring_force_diffusion_field_siren_grad' | 'particle_spring_force_diffusion_field_siren_grad_pde' | 'particle_spring_force_diffusion_field_siren_grid_pde' | 'particle_spring_force_diffusion_field_internal' | 'particle_spring_force_diffusion_field_siren_grid_pde_internal':
                 fig, ax = style.montage_figure()
                 if axis:
                     ax.xaxis.set_major_locator(plt.MaxNLocator(3))
@@ -986,7 +1409,108 @@ def plot_training(config, pred, gt, log_dir, epoch, N, x, index_cells, n_cells, 
         # Multi-time plot: 4 time snapshots → temporal sanity check
         plot_siren_field_slice(model, config, log_dir, epoch, N, ynorm, device, n_time_snapshots=4)
 
+    # --- Internal-state ODE MLP diagnostics (only for ..._internal models) ---
+    if hasattr(model, 'lin_internal'):
+        plot_internal_state(model, config, log_dir, epoch, N, device)
+
     return lin_edge_r2
+
+
+def plot_internal_state(model, config, log_dir, epoch, N, device):
+    """Diagnostics for the internal-state MLP (s, c_local) -> ds/dt.
+
+    Saves a 4-panel figure to tmp_training/internal/{epoch}_{N}.png:
+      [predicted ds/dt heatmap]  [true ds/dt heatmap]  [signed error]  [scatter]
+
+    The true ds/dt comes from the analytic ground truth used by the generator:
+        ds/dt = coeff_s * (c - s)
+    pulled from ``config.simulation.field_params``.  The scatter shows the
+    last batch's predicted vs. target values stashed by ``forward()``.
+    """
+    import os
+    style = default_style
+    fp = config.simulation.field_params
+    coeff_s = float(getattr(fp, 'internal_coeff_s', 2.0))
+
+    # Choose c-axis from observed last batch if available, else fall back to a sensible default.
+    last_pred   = getattr(model, 'last_internal_pred', None)
+    last_target = getattr(model, 'last_internal_target', None)
+
+    c_max = 0.5
+    if hasattr(model, 'last_scalar_field') and model.last_scalar_field is not None:
+        c_max = max(float(model.last_scalar_field.abs().max()) * 1.1, 1e-3)
+    s_lo, s_hi = 0.0, 1.0
+
+    n_grid = 64
+    s_axis = torch.linspace(s_lo, s_hi, n_grid, device=device)
+    c_axis = torch.linspace(0.0, c_max, n_grid, device=device)
+    S, C = torch.meshgrid(s_axis, c_axis, indexing='ij')
+    pts_sc = torch.stack([S.reshape(-1), C.reshape(-1)], dim=-1)        # (G, 2)
+
+    # lin_internal also takes the per-cell embedding now. Use the mean
+    # embedding across cells (run 0) as a representative — for a single-type
+    # config this is the sole cluster centroid.
+    with torch.no_grad():
+        mean_embed = model.a[0, :, :].mean(dim=0, keepdim=True)         # (1, E)
+        embed_grid = mean_embed.expand(pts_sc.shape[0], -1)             # (G, E)
+        pts = torch.cat([pts_sc, embed_grid], dim=-1)                   # (G, 2+E)
+        pred_grid = model.lin_internal(pts).reshape(n_grid, n_grid)
+    true_grid = coeff_s * (C - S)
+    err_grid = (pred_grid - true_grid)
+
+    pred_np = to_numpy(pred_grid)
+    true_np = to_numpy(true_grid)
+    err_np  = to_numpy(err_grid)
+
+    vlim = max(abs(true_np).max(), abs(pred_np).max(), 1e-8)
+    elim = max(abs(err_np).max(), 1e-8)
+
+    fig, axes = style.montage_figure(ncols=4, width=24)
+    extent = [0.0, c_max, s_lo, s_hi]
+
+    im0 = axes[0].imshow(pred_np, origin='lower', extent=extent, aspect='auto',
+                         cmap='RdBu_r', vmin=-vlim, vmax=vlim)
+    axes[0].set_title('predicted ds/dt = MLP(s, c)', color=style.foreground)
+    style.xlabel(axes[0], 'c'); style.ylabel(axes[0], 's')
+    plt.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
+
+    im1 = axes[1].imshow(true_np, origin='lower', extent=extent, aspect='auto',
+                         cmap='RdBu_r', vmin=-vlim, vmax=vlim)
+    axes[1].set_title(r'true ds/dt = coeff$_s$ * (c - s)', color=style.foreground)
+    style.xlabel(axes[1], 'c'); style.ylabel(axes[1], 's')
+    plt.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
+
+    im2 = axes[2].imshow(err_np, origin='lower', extent=extent, aspect='auto',
+                         cmap='RdBu_r', vmin=-elim, vmax=elim)
+    axes[2].set_title('error (pred - true)', color=style.foreground)
+    style.xlabel(axes[2], 'c'); style.ylabel(axes[2], 's')
+    plt.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
+
+    ax3 = axes[3]
+    if last_pred is not None and last_target is not None:
+        p_np = to_numpy(last_pred.detach())
+        t_np = to_numpy(last_target.detach())
+        ax3.scatter(t_np, p_np, s=2, alpha=0.3, color='C0')
+        lim_lo = float(min(p_np.min(), t_np.min()))
+        lim_hi = float(max(p_np.max(), t_np.max()))
+        pad = 0.05 * max(abs(lim_lo), abs(lim_hi), 1e-8)
+        ax3.plot([lim_lo - pad, lim_hi + pad], [lim_lo - pad, lim_hi + pad], 'r--', lw=1)
+        # R^2
+        ss_res = float(((p_np - t_np) ** 2).sum())
+        ss_tot = float(((t_np - t_np.mean()) ** 2).sum()) + 1e-12
+        r2 = 1.0 - ss_res / ss_tot
+        ax3.text(0.02, 0.98, f'R²={r2:.3f}', transform=ax3.transAxes,
+                 verticalalignment='top', fontsize=style.font_size * 0.9, color=style.foreground)
+        ax3.set_title('last batch: pred vs true', color=style.foreground)
+        style.xlabel(ax3, 'true ds/dt'); style.ylabel(ax3, 'pred ds/dt')
+    else:
+        ax3.text(0.5, 0.5, 'no last batch data', ha='center', va='center',
+                 transform=ax3.transAxes, color=style.foreground)
+        ax3.set_xticks([]); ax3.set_yticks([])
+
+    plt.tight_layout()
+    os.makedirs(f"./{log_dir}/tmp_training/internal", exist_ok=True)
+    style.savefig(fig, f"./{log_dir}/tmp_training/internal/{epoch}_{N}.png")
 
 
 # --------------------------------------------------------------------------- #
@@ -1430,6 +1954,18 @@ def plot_loss_components(loss_dict, regul_history, log_dir, epoch=None, Niter=No
     loss_data = _safe_log_data(loss_dict['loss'])
     ax.plot(loss_data, color='b', linewidth=style.line_width,
             label='loss', alpha=0.8)
+
+    # Per-component curves (only plotted if populated by the trainer).
+    for key, color, label in [
+        ('pos',      'tab:blue',   'pos (pred vs y_batch)'),
+        ('pde',      'tab:green',  'pde residual'),
+        ('pde_reg',  'tab:olive',  'pde reg'),
+        ('internal', 'tab:purple', 'internal ODE'),
+    ]:
+        data = loss_dict.get(key, []) if hasattr(loss_dict, 'get') else []
+        if len(data) > 0 and any(v > 0 for v in data):
+            ax.plot(_safe_log_data(data), color=color, linewidth=1.2, label=label, alpha=0.9)
+
     if regul_history:
         for key, color, label in [
             ('regul_total', 'red', 'total regul'),

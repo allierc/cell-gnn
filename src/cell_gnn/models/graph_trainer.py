@@ -147,7 +147,9 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
     if (best_model != None) & (best_model != ''):
         net = f"{log_dir}/models/best_model_with_{n_runs - 1}_graphs_{best_model}.pt"
         state_dict = torch.load(net, map_location=device)
-        model.load_state_dict(state_dict['model_state_dict'])
+        sd = state_dict['model_state_dict']
+        sd = {k.replace('_orig_mod.', ''): v for k, v in sd.items()}
+        model.load_state_dict(sd)
         start_epoch = int(best_model.split('_')[0])
         print(f'best_model: {best_model}  start_epoch: {start_epoch}')
         logger.info(f'best_model: {best_model}  start_epoch: {start_epoch}')
@@ -203,7 +205,7 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
     # Try torch.compile for faster execution (falls back to eager if Triton/CUDA headers unavailable)
     _compile_ok = False
     try:
-        model = torch.compile(model, mode='reduce-overhead')
+        model = torch.compile(model, mode='default')
         # Dry-run a tiny forward pass to trigger Triton compilation and catch failures early
         with torch.no_grad():
             _test_state = x_ts.frame(0).to(device)
@@ -211,9 +213,9 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
             _test_id = torch.zeros((_test_state.n_cells, 1), dtype=torch.int, device=device)
             model(_test_state, _test_edges, data_id=_test_id, training=False, has_field=False)
         if has_field:
-            model_f = torch.compile(model_f, mode='reduce-overhead')
+            model_f = torch.compile(model_f, mode='default')
         _compile_ok = True
-        print('torch.compile enabled (reduce-overhead)')
+        print('torch.compile enabled')
     except Exception as e:
         # Unwrap compiled model back to eager
         model = model._orig_mod if hasattr(model, '_orig_mod') else model
@@ -222,7 +224,7 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
         print(f'torch.compile failed, continuing in eager mode: {e}')
 
     list_loss = []
-    loss_dict = {'loss': []}
+    loss_dict = {'loss': [], 'pos': [], 'pde': [], 'pde_reg': [], 'internal': []}
     regularizer = LossRegularizer(tc, mc, sim, n_cells, plot_frequency=1)
 
     metrics_log_path = os.path.join(log_dir, 'tmp_training', 'metrics.log')
@@ -261,6 +263,22 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
 
         _total_loss_gpu = torch.zeros((), device=device)
         _total_regul_gpu = torch.zeros((), device=device)
+
+        # Optional torch.profiler — enable with env var PROF=1.
+        # Profiles iters 5..14 of the first epoch, writes Chrome trace JSON, then disables itself.
+        _prof_enabled = (epoch == start_epoch) and (os.environ.get('PROF') == '1')
+        _prof = None
+        if _prof_enabled:
+            from torch.profiler import profile, ProfilerActivity, schedule
+            _prof = profile(
+                activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                schedule=schedule(wait=2, warmup=2, active=10, repeat=1),
+                record_shapes=True,
+                with_stack=False,   # set True for stack traces (slower, bigger trace)
+                profile_memory=False,
+            )
+            _prof.start()
+            print('[profiler] active — will save trace after iter 14')
 
         pbar = trange(Niter, ncols=100)
         for N in pbar:
@@ -350,14 +368,14 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
                     batch_state, batch_edges = CellState.collate(states_batch, edges_batch)
                     pred = model(batch_state, batch_edges, data_id=data_id, training=True, k=k_batch)
 
+            # ----- 1. Position-based supervision (compute FIRST so that the
+            #          extra terms below actually survive into loss.backward).
             if sim.state_type == 'sequence':
                 loss = (pred - y_batch).norm(2)
-                loss = loss + tc.coeff_model_a * (model.a[run, ind_a + 1] - model.a[run, ind_a]).norm(2)
-
-            regul_loss = regularizer.compute(model, device)
-            loss = loss + regul_loss
-
-            if recurrent_active and recursive_loop > 1:
+                loss = loss + tc.coeff_model_a * (
+                    model.a[run, ind_a + 1] - model.a[run, ind_a]
+                ).norm(2)
+            elif recurrent_active and recursive_loop > 1:
                 if batch_ratio < 1:
                     loss = (pred[ids_batch] - y_batch[ids_batch]).norm(2)
                 else:
@@ -377,11 +395,50 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
                     x_pos_pred = pos_batch + delta_t * time_step * (vel_batch + delta_t * time_step * pred * ynorm)
                 else:
                     x_pos_pred = pos_batch + delta_t * time_step * pred * ynorm
-
                 if batch_ratio < 1:
-                    loss = loss + (x_pos_pred[ids_batch] - y_batch[ids_batch]).norm(2)
+                    loss = (x_pos_pred[ids_batch] - y_batch[ids_batch]).norm(2)
                 else:
-                    loss = loss + (x_pos_pred - y_batch).norm(2)
+                    loss = (x_pos_pred - y_batch).norm(2)
+
+            # Track per-component contributions for separated loss curves.
+            _pos_loss_val = float(loss.detach().item())
+
+            # ----- 2. Embedding/edge regularizers ------------------------------
+            regul_loss = regularizer.compute(model, device)
+            loss = loss + regul_loss
+
+            # ----- 3. PDE residual loss (models that stash last_pde_residual) -
+            #   total_loss += pde_weight * |dc/dt_siren - lin_pde(c, Lap c, src)|^2
+            _pde_loss_val = 0.0
+            pde_residual = getattr(model, 'last_pde_residual', None)
+            if pde_residual is not None:
+                pde_weight = getattr(tc, 'pde_weight', 1.0)
+                pde_term = pde_weight * pde_residual.pow(2).sum()
+                loss = loss + pde_term
+                _pde_loss_val = float(pde_term.detach().item())
+
+            # ----- 4. Internal-state ODE residual (..._internal models) -------
+            #   total_loss += internal_weight * |lin_internal(s, c_local) - ds/dt_target|^2
+            _internal_loss_val = 0.0
+            internal_residual = getattr(model, 'last_internal_residual', None)
+            if internal_residual is not None:
+                internal_weight = getattr(tc, 'internal_weight', 0.0)
+                if internal_weight > 0:
+                    int_term = internal_weight * internal_residual.pow(2).sum()
+                    loss = loss + int_term
+                    _internal_loss_val = float(int_term.detach().item())
+
+            # ----- 5. PDE regularisation: penalise negative concentration -----
+            # Dropped the c^2 magnitude penalty — biased SIREN away from c_true.
+            _pde_reg_loss_val = 0.0
+            pde_reg = getattr(model, 'last_pde_reg', None)
+            if pde_reg is not None:
+                pde_reg_weight = getattr(tc, 'pde_reg_weight', 0.0)
+                if pde_reg_weight > 0:
+                    neg_penalty = torch.relu(-pde_reg).pow(2).mean()
+                    reg_term = pde_reg_weight * neg_penalty
+                    loss = loss + reg_term
+                    _pde_reg_loss_val = float(reg_term.detach().item())
 
 
             loss.backward()
@@ -408,6 +465,10 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
                 logger.info(f'Epoch {epoch}  iter {N + 1}  avg loss: {avg_loss:.6f}')
 
                 loss_dict['loss'].append(_current_loss / n_cells)
+                loss_dict['pos'].append(_pos_loss_val / n_cells)
+                loss_dict['pde'].append(_pde_loss_val / n_cells)
+                loss_dict['pde_reg'].append(_pde_reg_loss_val / n_cells)
+                loss_dict['internal'].append(_internal_loss_val / n_cells)
                 plot_loss_components(loss_dict, regularizer.get_history(), log_dir, epoch=epoch, Niter=Niter)
                 lin_edge_r2 = plot_training(config=config, pred=pred, gt=y_batch, log_dir=log_dir,
                               epoch=epoch, N=N, x=x_plot, model=model, n_nodes=0, n_node_types=0, index_nodes=0,
@@ -429,9 +490,28 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
                 check_and_clear_memory(device=device, iteration_number=N, every_n_iterations=Niter // 50,
                                        memory_percentage_threshold=0.6)
 
+            # ── profiler step (must be every iter while profiling) ──
+            if _prof is not None:
+                _prof.step()
+                if N == 14:                       # wait(2)+warmup(2)+active(10) = 14
+                    _prof.stop()
+                    trace_path = os.path.join(log_dir, 'trace.json')
+                    _prof.export_chrome_trace(trace_path)
+                    print(f'[profiler] trace saved to {trace_path}')
+                    print('[profiler] open https://ui.perfetto.dev → Open trace file → select that JSON')
+                    _prof = None                  # disable for the rest of training
+
         torch.save({'model_state_dict': model.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict()},
                    os.path.join(log_dir, 'models', f'best_model_with_{n_runs - 1}_graphs_{epoch}.pt'))
+
+        # Field time-evolution plots — only at first and last epoch (expensive: ~800 PNGs each)
+        if epoch == start_epoch or epoch == n_epochs - 1:
+            from cell_gnn.plot import plot_siren_field_time_evolve
+            try:
+                plot_siren_field_time_evolve(model, config, log_dir, epoch, ynorm, device, frame_step=10)
+            except Exception as e:
+                print(f'[field_time_evolve] skipped: {e}')
 
         # Single sync at epoch end to get accumulated loss values
         total_loss = _total_loss_gpu.item()
@@ -510,11 +590,20 @@ def data_train_cell(config, erase, best_model, device, log_file=None):
                 features = build_edge_features(rr, all_embeddings, mc.cell_model_name, max_radius,
                                                 dimension=sim.dimension, batched=True)
                 N_feat, n_pts, input_dim = features.shape
+                # Chunk along cells to bound peak memory through lin_edge.
+                # Full reshape was N_feat*n_pts rows (~1M with the default
+                # 1000 cells × 1000 r-points), causing transient ~5 GB spikes
+                # in the sparsity step that OOM'd whenever the GPU was shared.
+                cell_chunk = max(1, min(N_feat, 32))
+                target = y_func_list.clone().detach()
                 for sub_epochs in range(20):
                     optimizer.zero_grad()
-                    pred_flat = model.lin_edge(features.reshape(N_feat * n_pts, input_dim).float())
-                    pred = pred_flat.reshape(N_feat, n_pts, -1)
-                    loss = (pred[:, :, 0] - y_func_list.clone().detach()).norm(2)
+                    loss = 0.0
+                    for s_idx in range(0, N_feat, cell_chunk):
+                        e_idx = min(s_idx + cell_chunk, N_feat)
+                        feat_chunk = features[s_idx:e_idx].reshape(-1, input_dim).float()
+                        pred_chunk = model.lin_edge(feat_chunk).reshape(e_idx - s_idx, n_pts, -1)
+                        loss = loss + (pred_chunk[:, :, 0] - target[s_idx:e_idx]).norm(2)
                     logger.info(f'    loss: {np.round(loss.item() / n_cells, 3)}')
                     loss.backward()
                     optimizer.step()
@@ -699,7 +788,10 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
         table.add_row([name, param])
         total_params += param
     state_dict = torch.load(net, map_location=device, weights_only=True)
-    model.load_state_dict(state_dict['model_state_dict'])
+    sd = state_dict['model_state_dict']
+    # Strip _orig_mod. prefix added by torch.compile
+    sd = {k.replace('_orig_mod.', ''): v for k, v in sd.items()}
+    model.load_state_dict(sd)
     model.eval()
 
     if has_field:
@@ -711,7 +803,9 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
                                 first_omega_0=mc.omega, hidden_omega_0=mc.omega)
         net_f = f'{log_dir}/models/best_model_f_with_1_graphs_{best_model}.pt'
         state_dict = torch.load(net_f, map_location=device)
-        model_f.load_state_dict(state_dict['model_state_dict'])
+        sd = state_dict['model_state_dict']
+        sd = {k.replace('_orig_mod.', ''): v for k, v in sd.items()}
+        model_f.load_state_dict(sd)
         model_f.to(device=device)
         model_f.eval()
         table_f = PrettyTable(["Modules", "Parameters"])
@@ -1076,7 +1170,7 @@ def data_test_cell(config=None, config_file=None, visualize=False, style='color 
         pred_vs_clean_list = []
         print(f'  force decomposition found: force_clean + force_noise')
     else:
-        print(f'  no force decomposition found (generate data with particle_spring_force_ode or particle_spring_force_dynamic_field to get it)')
+        print(f'  no force decomposition found (generate data with particle_spring_force_ode or particle_spring_force_prescribed_field to get it)')
 
     with torch.no_grad():
         for it in trange(n_test_frames, ncols=100, desc='one-step residual'):
@@ -1406,7 +1500,9 @@ def data_train_cell_field(config, erase, best_model, device, log_file=None):
     if (best_model != None) & (best_model != ''):
         net = f"{log_dir}/models/best_model_with_{n_runs - 1}_graphs_{best_model}.pt"
         state_dict = torch.load(net, map_location=device)
-        model.load_state_dict(state_dict['model_state_dict'])
+        sd = state_dict['model_state_dict']
+        sd = {k.replace('_orig_mod.', ''): v for k, v in sd.items()}
+        model.load_state_dict(sd)
         start_epoch = int(best_model.split('_')[0])
         print(f'best_model: {best_model}  start_epoch: {start_epoch}')
         logger.info(f'best_model: {best_model}  start_epoch: {start_epoch}')
@@ -1456,7 +1552,7 @@ def data_train_cell_field(config, erase, best_model, device, log_file=None):
 
     # Try torch.compile for faster execution (falls back to eager if Triton/CUDA headers unavailable)
     try:
-        model = torch.compile(model, mode='reduce-overhead')
+        model = torch.compile(model, mode='default')
         # Dry-run to trigger Triton compilation and catch failures early
         with torch.no_grad():
             _test_x = x_ts.frame(0).to_packed().to(device)
@@ -1464,8 +1560,8 @@ def data_train_cell_field(config, erase, best_model, device, log_file=None):
             _test_edges = edge_p_p_list[0]
             model(_test_state, _test_edges, data_id=0, training=False, has_field=False)
         if has_siren:
-            model_f = torch.compile(model_f, mode='reduce-overhead')
-        print('torch.compile enabled (reduce-overhead)')
+            model_f = torch.compile(model_f, mode='default')
+        print('torch.compile enabled')
     except Exception as e:
         model = model._orig_mod if hasattr(model, '_orig_mod') else model
         if has_siren and hasattr(model_f, '_orig_mod'):
@@ -1473,7 +1569,7 @@ def data_train_cell_field(config, erase, best_model, device, log_file=None):
         print(f'torch.compile failed, continuing in eager mode: {e}')
 
     list_loss = []
-    loss_dict = {'loss': []}
+    loss_dict = {'loss': [], 'pos': [], 'pde': [], 'pde_reg': [], 'internal': []}
     regularizer = LossRegularizer(tc, mc, sim, n_cells, plot_frequency=1)
 
     # Precompute f_p_mask for max batch size — vectorized, no Python loop
@@ -1677,11 +1773,20 @@ def data_train_cell_field(config, erase, best_model, device, log_file=None):
                 features = build_edge_features(rr, all_embeddings, mc.cell_model_name, max_radius,
                                                 dimension=sim.dimension, batched=True)
                 N_feat, n_pts, input_dim = features.shape
+                # Chunk along cells to bound peak memory through lin_edge.
+                # Full reshape was N_feat*n_pts rows (~1M with the default
+                # 1000 cells × 1000 r-points), causing transient ~5 GB spikes
+                # in the sparsity step that OOM'd whenever the GPU was shared.
+                cell_chunk = max(1, min(N_feat, 32))
+                target = y_func_list.clone().detach()
                 for sub_epochs in range(20):
                     optimizer.zero_grad()
-                    pred_flat = model.lin_edge(features.reshape(N_feat * n_pts, input_dim).float())
-                    pred = pred_flat.reshape(N_feat, n_pts, -1)
-                    loss = (pred[:, :, 0] - y_func_list.clone().detach()).norm(2)
+                    loss = 0.0
+                    for s_idx in range(0, N_feat, cell_chunk):
+                        e_idx = min(s_idx + cell_chunk, N_feat)
+                        feat_chunk = features[s_idx:e_idx].reshape(-1, input_dim).float()
+                        pred_chunk = model.lin_edge(feat_chunk).reshape(e_idx - s_idx, n_pts, -1)
+                        loss = loss + (pred_chunk[:, :, 0] - target[s_idx:e_idx]).norm(2)
                     logger.info(f'    loss: {np.round(loss.item() / n_cells, 3)}')
                     loss.backward()
                     optimizer.step()

@@ -394,7 +394,7 @@ def data_generate_cell(
     model, bc_pos, bc_dpos = choose_model(config=config, device=device)
 
     # Plot spring force profile for particle_spring_force_ode
-    if mc.cell_model_name in ("particle_spring_force_ode", "particle_spring_force_dynamic_field", "particle_spring_force_diffusion_field", "particle_spring_force_diffusion_field_siren_grad"):
+    if mc.cell_model_name in ("particle_spring_force_ode", "particle_spring_force_prescribed_field", "particle_spring_force_prescribed_field_siren_grad", "particle_spring_force_diffusion_field", "particle_spring_force_diffusion_field_siren_grad", "particle_spring_force_diffusion_field_siren_grad_pde", "particle_spring_force_diffusion_field_internal", "particle_spring_force_diffusion_field_siren_grid_pde_internal"):
         r_plot = torch.linspace(0, max_radius, 500, device=device)
         p = model.p.unsqueeze(0) if model.p.dim() == 1 else model.p
         fig, ax = plt.subplots(figsize=(8, 5))
@@ -451,9 +451,9 @@ def data_generate_cell(
 
     # optional writers for clean force and noise (particle_spring_force_ode)
     from cell_gnn.generators.particle_spring_force_ode import ParticleSpringForceODE
-    from cell_gnn.generators.particle_spring_force_dynamic_field import ParticleSpringForceDynamicField
+    from cell_gnn.generators.particle_spring_force_prescribed_field import ParticleSpringForcePrescribedField
     from cell_gnn.generators.particle_spring_force_diffusion_field import ParticleSpringForceDiffusionField
-    save_force_decomp = isinstance(model, (ParticleSpringForceODE, ParticleSpringForceDynamicField, ParticleSpringForceDiffusionField))
+    save_force_decomp = isinstance(model, (ParticleSpringForceODE, ParticleSpringForcePrescribedField, ParticleSpringForceDiffusionField))
     if save_force_decomp:
         force_clean_writer = ZarrArrayWriter(
             path=f"graphs_data/{dataset_name}/force_clean_{run}",
@@ -672,7 +672,7 @@ def data_generate_cell(
                     plt.tight_layout()
                     active_style.savefig(fig, f"graphs_data/{dataset_name}/Fig/Rot_{run}_Fig{it}.jpg")
 
-                elif (mc.cell_model_name in ("arbitrary_ode", "particle_spring_force_ode", "particle_spring_force_dynamic_field", "particle_spring_force_diffusion_field", "particle_spring_force_diffusion_field_siren_grad")) & (dimension == 3):
+                elif (mc.cell_model_name in ("arbitrary_ode", "particle_spring_force_ode", "particle_spring_force_prescribed_field", "particle_spring_force_prescribed_field_siren_grad", "particle_spring_force_diffusion_field", "particle_spring_force_diffusion_field_siren_grad", "particle_spring_force_diffusion_field_siren_grad_pde", "particle_spring_force_diffusion_field_internal", "particle_spring_force_diffusion_field_siren_grid_pde_internal")) & (dimension == 3):
                     from mpl_toolkits.mplot3d.art3d import Line3DCollection
                     from matplotlib.collections import LineCollection as LC
 
